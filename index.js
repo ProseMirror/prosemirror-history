@@ -41,7 +41,11 @@ class Branch {
       if (next.selection && !upto) { --end; break }
     }
 
-    let remap = preserveItems ? this.remapping(end, this.items.length) : null
+    let remap, mapFrom
+    if (preserveItems) {
+      remap = this.remapping(end, this.items.length)
+      mapFrom = remap.maps.length
+    }
     let transform = new Transform(doc)
     let selection, ids = []
 
@@ -49,21 +53,24 @@ class Branch {
       let cur = this.items[i]
 
       if (!cur.step) {
-        if (!remap) remap = this.remapping(end, i + 1)
-        remap.mapFrom--
+        if (!remap) {
+          remap = this.remapping(end, i + 1)
+          mapFrom = remap.maps.length
+        }
+        mapFrom--
         continue
       }
 
       if (remap) {
-        let step = cur.step.map(remap), map
+        let step = cur.step.map(remap.slice(mapFrom)), map
 
         this.items[i] = new MapItem(cur.map)
         if (step && transform.maybeStep(step).doc) {
           map = transform.mapping.maps[transform.mapping.maps.length - 1]
           this.items.push(new MapItem(map, this.items[i].id))
         }
-        remap.mapFrom--
-        if (map) remap.appendMap(map, remap.mapFrom)
+        mapFrom--
+        if (map) remap.appendMap(map, mapFrom)
       } else {
         this.items.pop()
         transform.maybeStep(cur.step)
@@ -73,7 +80,7 @@ class Branch {
       if (cur.selection) {
         this.events--
         if (!upto) {
-          selection = remap ? cur.selection.type.mapToken(cur.selection, remap) : cur.selection
+          selection = remap ? cur.selection.type.mapToken(cur.selection, remap.slice(mapFrom)) : cur.selection
           break
         }
       }
@@ -130,7 +137,7 @@ class Branch {
       }
       maps.push(item.map)
     }
-    return new Remapping(maps, maps.length, mirrors)
+    return new Remapping(maps, mirrors)
   }
 
   addMaps(array) {
@@ -181,12 +188,9 @@ class Branch {
       newUntil = Math.min(newUntil, pos)
       let map = mapping.maps[pos]
       if (item.step) {
-        let step = rebasedTransform.steps[pos].invert(rebasedTransform.docs[pos]), selection
-        if (item.selection) {
-          mapping.mapFrom = iRebased
-          mapping.mapTo = pos
-          selection = item.selection.type.mapToken(item.selection, mapping)
-        }
+        let step = rebasedTransform.steps[pos].invert(rebasedTransform.docs[pos])
+        let selection = item.selection &&
+            item.selection.type.mapToken(item.selection, mapping.slice(iRebased, pos))
         rebasedItems.push(new StepItem(map, item.id, step, selection))
       } else {
         rebasedItems.push(new MapItem(map))
@@ -217,23 +221,23 @@ class Branch {
   // order to associate old ids to rebased steps.
   compress(upto) {
     if (upto == null) upto = this.items.length
-    let remap = this.remapping(1, upto)
+    let remap = this.remapping(1, upto), mapFrom = remap.maps.length
     let items = [], events = 0
     for (let i = this.items.length - 1; i >= 0; i--) {
       let item = this.items[i]
       if (i >= upto) {
         items.push(item)
       } else if (item.step) {
-        let step = item.step.map(remap), map = step && step.posMap()
-        remap.mapFrom--
-        if (map) remap.appendMap(map, remap.mapFrom)
+        let step = item.step.map(remap.slice(mapFrom)), map = step && step.posMap()
+        mapFrom--
+        if (map) remap.appendMap(map, mapFrom)
         if (step) {
-          let selection = item.selection && item.selection.type.mapToken(item.selection, remap)
+          let selection = item.selection && item.selection.type.mapToken(item.selection, remap.slice(mapFrom))
           items.push(new StepItem(map.invert(), item.id, step, selection))
           if (selection) events++
         }
       } else if (item.map) {
-        remap.mapFrom--
+        mapFrom--
       } else {
         items.push(item)
       }
