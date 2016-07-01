@@ -59,7 +59,7 @@ class Branch {
 
         this.items[i] = new MapItem(cur.map)
         if (step && transform.maybeStep(step).doc) {
-          map = transform.maps[transform.maps.length - 1]
+          map = transform.mapping.maps[transform.mapping.maps.length - 1]
           this.items.push(new MapItem(map, this.items[i].id))
         }
         remap.mapFrom--
@@ -92,7 +92,7 @@ class Branch {
   addTransform(transform, selection, ids) {
     for (let i = 0; i < transform.steps.length; i++) {
       let step = transform.steps[i].invert(transform.docs[i])
-      this.items.push(new StepItem(transform.maps[i], ids && ids[i], step, selection))
+      this.items.push(new StepItem(transform.mapping.maps[i], ids && ids[i], step, selection))
       if (selection) {
         this.events++
         selection = null
@@ -178,7 +178,7 @@ class Branch {
       for (let iItem = start, iPosition = startPos; iItem < this.items.length; iItem++) {
         let item = this.items[iItem], pos = positions[iPosition++]
         if (pos != -1) {
-          let map = rebasedTransform.maps[pos]
+          let map = rebasedTransform.mapping.maps[pos]
           if (item.step) {
             let step = rebasedTransform.steps[pos].invert(rebasedTransform.docs[pos])
             let selection = item.selection && item.selection.type.mapToken(item.selection, remap)
@@ -326,8 +326,8 @@ class History {
     if (this.ignoreTransform) return
 
     if (options.addToHistory == false && this.options.selective) {
-      this.done.addMaps(transform.maps)
-      this.undone.addMaps(transform.maps)
+      this.done.addMaps(transform.mapping.maps)
+      this.undone.addMaps(transform.mapping.maps)
     } else {
       let now = Date.now()
       // Group transforms that occur in quick succession into one event.
