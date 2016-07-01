@@ -162,45 +162,45 @@ class Branch {
   // to know about those, so that it can adjust the steps that were
   // rebased on top of the remote changes, and include the position
   // maps for the remote changes in its array of items.
-  rebased(newMaps, rebasedTransform, positions) {
+  rebased(rebasedTransform, rebasedCount) {
     if (this.events == 0) return
 
-    let rebasedItems = [], start = this.items.length - positions.length, startPos = 0
+    let rebasedItems = [], start = this.items.length - rebasedCount, startPos = 0
     if (start < 1) {
       startPos = 1 - start
       start = 1
       this.items[0] = new Item
     }
 
-    if (positions.length) {
-      let inverted = this.items.slice(start).reverse().map(i => i.map.invert())
-      let remap = new Remapping(inverted.concat(newMaps), inverted.length)
-      for (let iItem = start, iPosition = startPos; iItem < this.items.length; iItem++) {
-        let item = this.items[iItem], pos = positions[iPosition++]
-        if (pos != -1) {
-          let map = rebasedTransform.mapping.maps[pos]
-          if (item.step) {
-            let step = rebasedTransform.steps[pos].invert(rebasedTransform.docs[pos])
-            let selection = item.selection && item.selection.type.mapToken(item.selection, remap)
-            rebasedItems.push(new StepItem(map, item.id, step, selection))
-          } else {
-            rebasedItems.push(new MapItem(map))
-          }
-          remap.appendMap(map, remap.mapFrom - 1)
+    let mapping = rebasedTransform.mapping
+    let newUntil = rebasedTransform.steps.length
+
+    for (let iItem = start, iRebased = startPos; iItem < this.items.length; iItem++, iRebased++) {
+      let item = this.items[iItem], pos = mapping.getMirror(iRebased)
+      if (pos == null) continue
+      newUntil = Math.min(newUntil, pos)
+      let map = mapping.maps[pos]
+      if (item.step) {
+        let step = rebasedTransform.steps[pos].invert(rebasedTransform.docs[pos]), selection
+        if (item.selection) {
+          mapping.mapFrom = iRebased
+          mapping.mapTo = pos
+          selection = item.selection.type.mapToken(item.selection, mapping)
         }
-        remap.mapFrom--
+        rebasedItems.push(new StepItem(map, item.id, step, selection))
+      } else {
+        rebasedItems.push(new MapItem(map))
       }
-
-      this.items.length = start
     }
+    this.items.length = start
 
-    for (let i = 0; i < newMaps.length; i++)
-      this.items.push(new MapItem(newMaps[i]))
+    for (let i = rebasedCount; i < newUntil; i++)
+      this.items.push(new MapItem(mapping.maps[i]))
     for (let i = 0; i < rebasedItems.length; i++)
       this.items.push(rebasedItems[i])
 
-    if (!this.compressing && this.emptyItems(start) + newMaps.length > max_empty_items)
-      this.compress(start + newMaps.length)
+    if (!this.compressing && this.emptyItems(start) + (newUntil - rebasedCount) > max_empty_items)
+      this.compress(start + (newUntil - rebasedCount))
   }
 
   emptyItems(upto) {
@@ -310,7 +310,6 @@ class History {
     this.undone = new Branch(this.options.depth)
 
     this.lastAddedAt = 0
-    this.ignoreTransform = false
     this.preserveItems = 0
   }
 
@@ -323,11 +322,18 @@ class History {
   // : (Transform, Selection, Object)
   // Record a transformation in undo history.
   recordTransform(transform, selection, options) {
-    if (this.ignoreTransform) return
-
-    if (options.addToHistory == false && this.options.selective) {
-      this.done.addMaps(transform.mapping.maps)
-      this.undone.addMaps(transform.mapping.maps)
+    if (options.historyIgnore) {
+      // Ignore
+    } else if (options.addToHistory == false && this.options.selective) {
+      if (options.rebased) {
+        // Used by the collab module to tell the history that some of its
+        // content has been rebased.
+        this.done.rebased(transform, options.rebased)
+        this.undone.rebased(transform, options.rebased)
+      } else {
+        this.done.addMaps(transform.mapping.maps)
+        this.undone.addMaps(transform.mapping.maps)
+      }
     } else {
       let now = Date.now()
       // Group transforms that occur in quick succession into one event.
@@ -378,7 +384,7 @@ class History {
     if (!pop.transform.steps.length) return this.shift(from, to)
 
     let selection = pop.selection.type.fromToken(pop.selection, pop.transform.doc)
-    this.applyIgnoring(pop.transform, selection)
+    this.pm.apply(pop.transform, {selection, filter: false, historyIgnore: true})
 
     // Store the selection before transform on the event so that
     // it can be reapplied if the event is undone or redone (e.g.
@@ -389,12 +395,6 @@ class History {
     this.lastAddedAt = 0
 
     return true
-  }
-
-  applyIgnoring(transform, selection) {
-    this.ignoreTransform = true
-    this.pm.apply(transform, {selection, filter: false})
-    this.ignoreTransform = false
   }
 
   // :: () → Object
@@ -423,18 +423,9 @@ class History {
     let found = this.done.findChangeID(version)
     if (!found) return false
     let {transform} = this.done.popEvent(this.pm.doc, this.preserveItems > 0, found)
-    this.applyIgnoring(transform)
+    this.pm.apply(transform, {filter: false, historyIgnore: true})
     this.undone.clear()
     return true
-  }
-
-  // Used by the collab module to tell the history that some of its
-  // content has been rebased.
-  rebased(newMaps, rebasedTransform, positions) {
-    if (!this.options.selective)
-      throw new RangeError("Non-selective history can not be rebased")
-    this.done.rebased(newMaps, rebasedTransform, positions)
-    this.undone.rebased(newMaps, rebasedTransform, positions)
   }
 }
 exports.History = History
