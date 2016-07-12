@@ -21,22 +21,20 @@ const {createPluginIdentity} = require("../config")
 const max_empty_items = 500
 
 class Branch {
-  constructor(maxEvents) {
-    this.events = 0
-    this.maxEvents = maxEvents
-    // Item 0 is always a dummy that's only used to have an id to
-    // refer to at the start of the history.
-    this.items = [new Item]
+  constructor(eventCount, items) {
+    this.eventCount = eventCount
+    this.items = items
   }
 
   // : (Node, bool, ?Item) → ?{transform: Transform, selection: SelectionToken, ids: [number]}
   // Pop the latest event off the branch's history and apply it
   // to a document transform, returning the transform and the step IDs.
   popEvent(doc, preserveItems) {
+    if (this.eventCount == 0) return null
+
     let end = this.items.length
     for (;; end--) {
       let next = this.items[end - 1]
-      if (!next.map) return null
       if (next.selection) { --end; break }
     }
 
@@ -46,10 +44,10 @@ class Branch {
       mapFrom = remap.maps.length
     }
     let transform = new Transform(doc)
-    let selection
+    let selection, items = this.items.slice()
 
-    for (let i = this.items.length - 1; i >= end; i--) {
-      let cur = this.items[i]
+    for (let i = this.items.length - 1;; i--) {
+      let cur = items[i]
 
       if (!cur.step) {
         if (!remap) {
@@ -63,73 +61,44 @@ class Branch {
       if (remap) {
         let step = cur.step.map(remap.slice(mapFrom)), map
 
-        this.items[i] = new MapItem(cur.map)
+        items[i] = new Item(cur.map)
         if (step && transform.maybeStep(step).doc) {
           map = transform.mapping.maps[transform.mapping.maps.length - 1]
-          this.items.push(new MapItem(map, this.items[i].id))
+          items.push(new Item(map, null, null, items.length - i))
         }
         mapFrom--
         if (map) remap.appendMap(map, mapFrom)
       } else {
-        this.items.pop()
+        items.pop()
         transform.maybeStep(cur.step)
       }
 
       if (cur.selection) {
-        this.events--
         selection = remap ? cur.selection.type.mapToken(cur.selection, remap.slice(mapFrom)) : cur.selection
-        break
+        return {branch: new Branch(this.eventCount - 1, items), transform, selection}
       }
     }
-
-    return {transform, selection}
-  }
-
-  clear() {
-    this.items.length = 1
-    this.events = 0
   }
 
   // : (Transform, Selection, ?[number])
   // Create a new branch with the given transform added.
   addTransform(transform, selection) {
+    let items = this.items.slice(), eventCount = this.eventCount + (selection ? 1 : 0)
     for (let i = 0; i < transform.steps.length; i++) {
       let step = transform.steps[i].invert(transform.docs[i])
-      this.items.push(new StepItem(transform.mapping.maps[i], step, selection))
-      if (selection) {
-        this.events++
-        selection = null
-      }
+      items.push(new Item(transform.mapping.maps[i], step, selection))
+      selection = null
     }
-    if (this.events > this.maxEvents) this.clip()
-  }
-
-  // Clip this branch to the max number of events.
-  clip() {
-    var seen = 0, toClip = this.events - this.maxEvents
-    for (let i = 0;; i++) {
-      let cur = this.items[i]
-      if (cur.selection) {
-        if (seen < toClip) {
-          ++seen
-        } else {
-          this.items.splice(0, i, new Item(null, this.events[toClip - 1]))
-          this.events = this.maxEvents
-          return
-        }
-      }
-    }
+    return new Branch(eventCount, items)
   }
 
   remapping(from, to) {
     let maps = [], mirrors = []
     for (let i = from; i < to; i++) {
       let item = this.items[i]
-      if (item.mirror != null) {
-        for (let j = i - 1; j >= from; j--) if (this.items[j].id == item.mirror) {
-          mirrors.push(maps.indexOf(this.items[j].map), maps.length)
-          break
-        }
+      if (item.mirrorOffset != null) {
+        let mirrorPos = i - item.mirrorOffset
+        if (mirrorPos >= from) mirrors.push(maps.length - item.mirrorOffset, maps.length)
       }
       maps.push(item.map)
     }
@@ -137,29 +106,17 @@ class Branch {
   }
 
   addMaps(array) {
-    if (this.events == 0) return
+    if (this.eventCount == 0) return
+    let items = this.items.slice()
     for (let i = 0; i < array.length; i++)
-      this.items.push(new MapItem(array[i]))
+      items.push(new Item(array[i]))
+    return new Remapping(this.eventCount, items)
   }
+}
 
-  get changeID() {
-    for (let i = this.items.length - 1; i > 0; i--)
-      if (this.items[i].step) return this.items[i].id
-    return this.items[0].id
-  }
+Branch.empty = new Branch(0, [])
 
-  findChangeID(id) {
-    if (id == this.items[0].id) return this.items[0]
-
-    for (let i = this.items.length - 1; i >= 0; i--) {
-      let cur = this.items[i]
-      if (cur.step) {
-        if (cur.id == id) return cur
-        if (cur.id < id) return null
-      }
-    }
-  }
-
+class XBranch {
   // : ([PosMap], Transform, [number])
   // When the collab module receives remote changes, the history has
   // to know about those, so that it can adjust the steps that were
@@ -187,15 +144,15 @@ class Branch {
         let step = rebasedTransform.steps[pos].invert(rebasedTransform.docs[pos])
         let selection = item.selection &&
             item.selection.type.mapToken(item.selection, mapping.slice(iRebased, pos))
-        rebasedItems.push(new StepItem(map, step, selection))
+        rebasedItems.push(new Item(map, step, selection))
       } else {
-        rebasedItems.push(new MapItem(map))
+        rebasedItems.push(new Item(map))
       }
     }
     this.items.length = start
 
     for (let i = rebasedCount; i < newUntil; i++)
-      this.items.push(new MapItem(mapping.maps[i]))
+      this.items.push(new Item(mapping.maps[i]))
     for (let i = 0; i < rebasedItems.length; i++)
       this.items.push(rebasedItems[i])
 
@@ -229,7 +186,7 @@ class Branch {
         if (map) remap.appendMap(map, mapFrom)
         if (step) {
           let selection = item.selection && item.selection.type.mapToken(item.selection, remap.slice(mapFrom))
-          items.push(new StepItem(map.invert(), step, selection))
+          items.push(new Item(map.invert(), step, selection))
           if (selection) events++
         }
       } else if (item.map) {
@@ -254,39 +211,22 @@ class Branch {
 //   necessarily ordered.
 //
 // - The placeholder item at the base of a branch's list
-let nextID = 1
-
 class Item {
-  constructor(map, id) {
+  constructor(map, step, selection, mirrorOffset) {
     this.map = map
-    this.id = id || nextID++
-  }
-}
-
-class StepItem extends Item {
-  constructor(map, step, selection) {
-    super(map)
     this.step = step
     this.selection = selection
-  }
-}
-
-class MapItem extends Item {
-  constructor(map, mirror) {
-    super(map)
-    this.mirror = mirror
+    this.mirrorOffset = mirrorOffset
   }
 }
 
 // ;; An undo/redo history manager for an editor instance.
 class History {
-  constructor(options) {
+  constructor(options, done, undone, lastAddedAt) {
     this.options = options
-    this.done = new Branch(this.options.depth)
-    this.undone = new Branch(this.options.depth)
-
-    this.lastAddedAt = 0
-    this.preserveItems = 0
+    this.done = done
+    this.undone = undone
+    this.lastAddedAt = lastAddedAt
   }
 
   // : (Transform, Selection, Object)
@@ -294,25 +234,30 @@ class History {
   applyTransform(transform, options, oldState) {
     if (options.historyIgnore) {
       // Ignore
+      return this
     } else if (options.addToHistory == false && this.options.selective) {
       if (options.rebased) {
         // Used by the collab module to tell the history that some of its
         // content has been rebased.
-        this.done.rebased(transform, options.rebased)
-        this.undone.rebased(transform, options.rebased)
+        return new History(this.options,
+                           this.done.rebased(transform, options.rebased),
+                           this.undone.rebased(transform, options.rebased),
+                           this.lastAddedAt)
       } else {
-        this.done.addMaps(transform.mapping.maps)
-        this.undone.addMaps(transform.mapping.maps)
+        return new History(this.options,
+                           this.done.addMaps(transform.mapping.maps),
+                           this.undone.addMaps(transform.mapping.maps),
+                           this.lastAddedAt)
       }
     } else {
       let now = Date.now()
       // Group transforms that occur in quick succession into one event.
       let newGroup = now > this.lastAddedAt + this.options.eventDelay
-      this.done.addTransform(transform, newGroup ? oldState.selection.token : null)
-      this.undone.clear()
-      this.lastAddedAt = now
+      return new History(this.options,
+                         this.done.addTransform(transform, newGroup ? oldState.selection.token : null),
+                         Branch.empty,
+                         now)
     }
-    return this
   }
 
   // :: number
@@ -323,34 +268,28 @@ class History {
   // The amount of redoable events available.
   get redoDepth() { return this.undone.events }
 
-  // :: ()
+  // :: () → History
   // Makes sure that the next change made will start a new history
   // event, not be added to the last event.
-  cut() { this.lastAddedAt = 0 }
+  cut() { return new History(this.options, this.done, this.undone, 0) }
 
   // : (Branch, Branch) → bool
   // Apply the latest event from one branch to the document and optionally
   // shift the event onto the other branch. Returns true when an event could
   // be shifted.
-  shift(from, to, state) {
-    let pop = from.popEvent(state.doc, this.preserveItems > 0)
+  shift(state, redo) {
+    let pop = (redo ? this.undone : this.done).popEvent(state.doc) // FIXME preserve items
     if (!pop) return state
+
     let selectionBeforeTransform = state.selection
-
-    if (!pop.transform.steps.length) return this.shift(from, to)
-
     let selection = pop.selection.type.fromToken(pop.selection, pop.transform.doc)
-    state = state.applyTransform(pop.transform, {selection, filter: false, historyIgnore: true})
+    let added = (redo ? this.done : this.undone).addTransform(pop.transform, selectionBeforeTransform.token)
 
-    // Store the selection before transform on the event so that
-    // it can be reapplied if the event is undone or redone (e.g.
-    // redoing a character addition should place the cursor after
-    // the character).
-    to.addTransform(pop.transform, selectionBeforeTransform.token)
-
-    this.lastAddedAt = 0
-
-    return state
+    let newHist = new History(this.options, redo ? added : pop.branch, redo ? pop.branch : added, 0)
+    let newState = state.applyTransform(pop.transform, {selection, filter: false, historyIgnore: true})
+        .update({history: newHist})
+    if (!pop.transform.steps.length && pop.branch.eventCount) return newHist.shift(newState, redo)
+    return newState
   }
 
   // :: () → state
@@ -362,14 +301,14 @@ class History {
   // this method to still return `false`, when non-history changes
   // overwrote all remaining changes in the history.
   undo(state) {
-    return this.shift(this.done, this.undone, state)
+    return this.shift(state, false)
   }
 
   // :: () → bool
   // Redo one history event. The return value indicates whether
   // anything was actually redone.
   redo(state) {
-    return this.shift(this.undone, this.done, state)
+    return this.shift(state, true)
   }
 }
 exports.History = History
@@ -407,6 +346,6 @@ exports.historyPlugin = function(config) {
     identity: pluginIdentity,
     // FIXME merge
 
-    stateFields: {history: new History(options)}
+    stateFields: {history: new History(options, Branch.empty, Branch.empty, 0)}
   }
 }
