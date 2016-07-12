@@ -1,5 +1,5 @@
-const {Plugin} = require("../edit")
 const {Transform, Remapping} = require("../transform")
+const {createPluginIdentity} = require("../config")
 
 // ProseMirror's history isn't simply a way to roll back to a previous
 // state, because ProseMirror supports applying changes without adding
@@ -32,13 +32,12 @@ class Branch {
   // : (Node, bool, ?Item) → ?{transform: Transform, selection: SelectionToken, ids: [number]}
   // Pop the latest event off the branch's history and apply it
   // to a document transform, returning the transform and the step IDs.
-  popEvent(doc, preserveItems, upto) {
+  popEvent(doc, preserveItems) {
     let end = this.items.length
     for (;; end--) {
       let next = this.items[end - 1]
-      if (upto && next == upto) break
       if (!next.map) return null
-      if (next.selection && !upto) { --end; break }
+      if (next.selection) { --end; break }
     }
 
     let remap, mapFrom
@@ -47,7 +46,7 @@ class Branch {
       mapFrom = remap.maps.length
     }
     let transform = new Transform(doc)
-    let selection, ids = []
+    let selection
 
     for (let i = this.items.length - 1; i >= end; i--) {
       let cur = this.items[i]
@@ -76,17 +75,14 @@ class Branch {
         transform.maybeStep(cur.step)
       }
 
-      ids.push(cur.id)
       if (cur.selection) {
         this.events--
-        if (!upto) {
-          selection = remap ? cur.selection.type.mapToken(cur.selection, remap.slice(mapFrom)) : cur.selection
-          break
-        }
+        selection = remap ? cur.selection.type.mapToken(cur.selection, remap.slice(mapFrom)) : cur.selection
+        break
       }
     }
 
-    return {transform, selection, ids}
+    return {transform, selection}
   }
 
   clear() {
@@ -96,10 +92,10 @@ class Branch {
 
   // : (Transform, Selection, ?[number])
   // Create a new branch with the given transform added.
-  addTransform(transform, selection, ids) {
+  addTransform(transform, selection) {
     for (let i = 0; i < transform.steps.length; i++) {
       let step = transform.steps[i].invert(transform.docs[i])
-      this.items.push(new StepItem(transform.mapping.maps[i], ids && ids[i], step, selection))
+      this.items.push(new StepItem(transform.mapping.maps[i], step, selection))
       if (selection) {
         this.events++
         selection = null
@@ -191,7 +187,7 @@ class Branch {
         let step = rebasedTransform.steps[pos].invert(rebasedTransform.docs[pos])
         let selection = item.selection &&
             item.selection.type.mapToken(item.selection, mapping.slice(iRebased, pos))
-        rebasedItems.push(new StepItem(map, item.id, step, selection))
+        rebasedItems.push(new StepItem(map, step, selection))
       } else {
         rebasedItems.push(new MapItem(map))
       }
@@ -203,7 +199,7 @@ class Branch {
     for (let i = 0; i < rebasedItems.length; i++)
       this.items.push(rebasedItems[i])
 
-    if (!this.compressing && this.emptyItems(start) + (newUntil - rebasedCount) > max_empty_items)
+    if (this.emptyItems(start) + (newUntil - rebasedCount) > max_empty_items)
       this.compress(start + (newUntil - rebasedCount))
   }
 
@@ -233,7 +229,7 @@ class Branch {
         if (map) remap.appendMap(map, mapFrom)
         if (step) {
           let selection = item.selection && item.selection.type.mapToken(item.selection, remap.slice(mapFrom))
-          items.push(new StepItem(map.invert(), item.id, step, selection))
+          items.push(new StepItem(map.invert(), step, selection))
           if (selection) events++
         }
       } else if (item.map) {
@@ -244,10 +240,6 @@ class Branch {
     }
     this.items = items.reverse()
     this.events = events
-  }
-
-  toString() {
-    return this.items.join("\n")
   }
 }
 
@@ -269,16 +261,11 @@ class Item {
     this.map = map
     this.id = id || nextID++
   }
-
-  toString() {
-    return this.id + ":" + (this.map || "") + (this.step ? ":" + this.step : "") +
-      (this.mirror != null ? "->" + this.mirror : "")
-  }
 }
 
 class StepItem extends Item {
-  constructor(map, id, step, selection) {
-    super(map, id)
+  constructor(map, step, selection) {
+    super(map)
     this.step = step
     this.selection = selection
   }
@@ -293,23 +280,8 @@ class MapItem extends Item {
 
 // ;; An undo/redo history manager for an editor instance.
 class History {
-  constructor(pm, options) {
-    if (pm.history)
-      throw new RangeError("ProseMirror instance already has a history object")
-    pm.history = this
-
-    this.pm = pm
+  constructor(options) {
     this.options = options
-
-    this.resetState()
-
-    this.recordTransform = this.recordTransform.bind(this)
-    pm.on.transform.add(this.recordTransform)
-    this.resetSelf = () => this.resetState()
-    pm.on.setDoc.add(this.resetSelf)
-  }
-
-  resetState() {
     this.done = new Branch(this.options.depth)
     this.undone = new Branch(this.options.depth)
 
@@ -317,15 +289,9 @@ class History {
     this.preserveItems = 0
   }
 
-  detach(pm) {
-    pm.on.transform.remove(this.recordTransform)
-    pm.on.setDoc.remove(this.resetSelf)
-    pm.history = null
-  }
-
   // : (Transform, Selection, Object)
   // Record a transformation in undo history.
-  recordTransform(transform, selection, options) {
+  applyTransform(transform, options, oldState) {
     if (options.historyIgnore) {
       // Ignore
     } else if (options.addToHistory == false && this.options.selective) {
@@ -342,26 +308,12 @@ class History {
       let now = Date.now()
       // Group transforms that occur in quick succession into one event.
       let newGroup = now > this.lastAddedAt + this.options.eventDelay
-      this.done.addTransform(transform, newGroup ? selection.token : null)
+      this.done.addTransform(transform, newGroup ? oldState.selection.token : null)
       this.undone.clear()
       this.lastAddedAt = now
     }
+    return this
   }
-
-  // :: () → bool
-  // Undo one history event. The return value indicates whether
-  // anything was actually undone. Note that in a collaborative
-  // context, or when changes are [applied](#ProseMirror.apply)
-  // without adding them to the history, it is possible for
-  // [`undoDepth`](#History.undoDepth) to have a positive value, but
-  // this method to still return `false`, when non-history changes
-  // overwrote all remaining changes in the history.
-  undo() { return this.shift(this.done, this.undone) }
-
-  // :: () → bool
-  // Redo one history event. The return value indicates whether
-  // anything was actually redone.
-  redo() { return this.shift(this.undone, this.done) }
 
   // :: number
   // The amount of undoable events available.
@@ -380,61 +332,57 @@ class History {
   // Apply the latest event from one branch to the document and optionally
   // shift the event onto the other branch. Returns true when an event could
   // be shifted.
-  shift(from, to) {
-    let pop = from.popEvent(this.pm.doc, this.preserveItems > 0)
-    if (!pop) return false
-    let selectionBeforeTransform = this.pm.selection
+  shift(from, to, state) {
+    let pop = from.popEvent(state.doc, this.preserveItems > 0)
+    if (!pop) return state
+    let selectionBeforeTransform = state.selection
 
     if (!pop.transform.steps.length) return this.shift(from, to)
 
     let selection = pop.selection.type.fromToken(pop.selection, pop.transform.doc)
-    this.pm.apply(pop.transform, {selection, filter: false, historyIgnore: true})
+    state = state.applyTransform(pop.transform, {selection, filter: false, historyIgnore: true})
 
     // Store the selection before transform on the event so that
     // it can be reapplied if the event is undone or redone (e.g.
     // redoing a character addition should place the cursor after
     // the character).
-    to.addTransform(pop.transform, selectionBeforeTransform.token, pop.ids)
+    to.addTransform(pop.transform, selectionBeforeTransform.token)
 
     this.lastAddedAt = 0
 
-    return true
+    return state
   }
 
-  // :: () → Object
-  // Get the current ‘version’ of the editor content. This can be used
-  // to later [check](#History.isAtVersion) whether anything changed, or
-  // to [roll back](#History.backToVersion) to this version.
-  getVersion() {
-    return this.done.changeID
+  // :: () → state
+  // Undo one history event. The return value indicates whether
+  // anything was actually undone. Note that in a collaborative
+  // context, or when changes are [applied](#ProseMirror.apply)
+  // without adding them to the history, it is possible for
+  // [`undoDepth`](#History.undoDepth) to have a positive value, but
+  // this method to still return `false`, when non-history changes
+  // overwrote all remaining changes in the history.
+  undo(state) {
+    return this.shift(this.done, this.undone, state)
   }
 
-  // :: (Object) → bool
-  // Returns `true` when the editor history is in the state that it
-  // was when the given [version](#History.getVersion) was recorded.
-  // That means either no changes were made, or changes were
-  // done/undone and then undone/redone again.
-  isAtVersion(version) {
-    return this.done.changeID == version
-  }
-
-  // :: (Object) → bool
-  // Rolls back all changes made since the given
-  // [version](#History.getVersion) was recorded. Returns `false` if
-  // that version was no longer found in the history, and thus the
-  // action could not be completed.
-  backToVersion(version) {
-    let found = this.done.findChangeID(version)
-    if (!found) return false
-    let {transform} = this.done.popEvent(this.pm.doc, this.preserveItems > 0, found)
-    this.pm.apply(transform, {filter: false, historyIgnore: true})
-    this.undone.clear()
-    return true
+  // :: () → bool
+  // Redo one history event. The return value indicates whether
+  // anything was actually redone.
+  redo(state) {
+    return this.shift(this.undone, this.done, state)
   }
 }
 exports.History = History
 
-// :: Plugin
+const pluginIdentity = createPluginIdentity("history")
+
+const defaults = {
+  depth: 100,
+  eventDelay: 500,
+  selective: true
+}
+
+// :: (Object) → Plugin
 // A plugin that enables the undo history for an editor. Has the
 // effect of setting the editor's `history` property to an instance of
 // `History`. Takes the following options:
@@ -451,9 +399,14 @@ exports.History = History
 //   : Controls whether the history allows changes that aren't added
 //     to the history, as used by collaborative editing and transforms
 //     with the `addToHistory` option set to false. Defaults to true.
-const historyPlugin = new Plugin(History, {
-  depth: 100,
-  eventDelay: 500,
-  selective: true
-})
-exports.historyPlugin = historyPlugin
+exports.historyPlugin = function(config) {
+  let options = {}
+  for (let prop in defaults) options[prop] = config && config.hasOwnProperty(prop) ? config[prop] : defaults[prop]
+
+  return {
+    identity: pluginIdentity,
+    // FIXME merge
+
+    stateFields: {history: new History(options)}
+  }
+}
