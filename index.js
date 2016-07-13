@@ -21,9 +21,9 @@ const {createPluginIdentity} = require("../config")
 const max_empty_items = 500
 
 class Branch {
-  constructor(eventCount, items) {
-    this.eventCount = eventCount
+  constructor(items, eventCount) {
     this.items = items
+    this.eventCount = eventCount
   }
 
   // : (Node, bool, ?Item) → ?{transform: Transform, selection: SelectionToken, ids: [number]}
@@ -75,7 +75,8 @@ class Branch {
 
       if (cur.selection) {
         selection = remap ? cur.selection.type.mapToken(cur.selection, remap.slice(mapFrom)) : cur.selection
-        return {branch: new Branch(this.eventCount - 1, items), transform, selection}
+        return {branch: new Branch(items, this.eventCount - 1),
+                transform, selection}
       }
     }
   }
@@ -89,7 +90,7 @@ class Branch {
       items.push(new Item(transform.mapping.maps[i], step, selection))
       selection = null
     }
-    return new Branch(eventCount, items)
+    return new Branch(items, eventCount)
   }
 
   remapping(from, to) {
@@ -112,24 +113,19 @@ class Branch {
       items.push(new Item(array[i]))
     return new Remapping(this.eventCount, items)
   }
-}
 
-Branch.empty = new Branch(0, [])
-
-class XBranch {
   // : ([PosMap], Transform, [number])
   // When the collab module receives remote changes, the history has
   // to know about those, so that it can adjust the steps that were
   // rebased on top of the remote changes, and include the position
   // maps for the remote changes in its array of items.
   rebased(rebasedTransform, rebasedCount) {
-    if (this.events == 0) return
+    if (!this.eventCount) return
 
     let rebasedItems = [], start = this.items.length - rebasedCount, startPos = 0
-    if (start < 1) {
-      startPos = 1 - start
-      start = 1
-      this.items[0] = new Item
+    if (start < 0) {
+      startPos = -start
+      start = 0
     }
 
     let mapping = rebasedTransform.mapping
@@ -149,20 +145,22 @@ class XBranch {
         rebasedItems.push(new Item(map))
       }
     }
-    this.items.length = start
+    let items = this.items.slice(0, start)
 
     for (let i = rebasedCount; i < newUntil; i++)
-      this.items.push(new Item(mapping.maps[i]))
+      items.push(new Item(mapping.maps[i]))
     for (let i = 0; i < rebasedItems.length; i++)
-      this.items.push(rebasedItems[i])
+      items.push(rebasedItems[i])
 
-    if (this.emptyItems(start) + (newUntil - rebasedCount) > max_empty_items)
-      this.compress(start + (newUntil - rebasedCount))
+    let branch = new Branch(items, this.eventCount)
+    if (branch.emptyItemCount() > max_empty_items)
+      branch = branch.compress(this.items.length - rebasedItems.length)
+    return branch
   }
 
-  emptyItems(upto) {
+  emptyItemCount() {
     let count = 0
-    for (let i = 1; i < upto; i++) if (!this.items[i].step) count++
+    for (let i = 0; i < this.items.length; i++) if (!this.items[i].step) count++
     return count
   }
 
@@ -174,7 +172,7 @@ class XBranch {
   // order to associate old ids to rebased steps.
   compress(upto) {
     if (upto == null) upto = this.items.length
-    let remap = this.remapping(1, upto), mapFrom = remap.maps.length
+    let remap = this.remapping(0, upto), mapFrom = remap.maps.length
     let items = [], events = 0
     for (let i = this.items.length - 1; i >= 0; i--) {
       let item = this.items[i]
@@ -195,10 +193,11 @@ class XBranch {
         items.push(item)
       }
     }
-    this.items = items.reverse()
-    this.events = events
+    return new Branch(items.reverse(), events)
   }
 }
+
+Branch.empty = new Branch([], 0)
 
 // History items all have ids, but the meaning of these is somewhat
 // complicated.
@@ -235,7 +234,7 @@ class History {
     if (options.historyIgnore) {
       // Ignore
       return this
-    } else if (options.addToHistory == false && this.options.selective) {
+    } else if (options.addToHistory == false) {
       if (options.rebased) {
         // Used by the collab module to tell the history that some of its
         // content has been rebased.
@@ -278,7 +277,7 @@ class History {
   // shift the event onto the other branch. Returns true when an event could
   // be shifted.
   shift(state, redo) {
-    let pop = (redo ? this.undone : this.done).popEvent(state.doc) // FIXME preserve items
+    let pop = (redo ? this.undone : this.done).popEvent(state.doc, this.options.preserveItems)
     if (!pop) return state
 
     let selectionBeforeTransform = state.selection
@@ -318,7 +317,7 @@ const pluginIdentity = createPluginIdentity("history")
 const defaults = {
   depth: 100,
   eventDelay: 500,
-  selective: true
+  preserveItems: false
 }
 
 // :: (Object) → Plugin
@@ -333,17 +332,21 @@ const defaults = {
 // **`eventDelay`**`: number`
 //   : The amount of milliseconds that must pass between changes to
 //     start a new history event. Defaults to 500.
-//
-// **`selective`**`: bool`
-//   : Controls whether the history allows changes that aren't added
-//     to the history, as used by collaborative editing and transforms
-//     with the `addToHistory` option set to false. Defaults to true.
 exports.historyPlugin = function(config) {
   let options = {}
   for (let prop in defaults) options[prop] = config && config.hasOwnProperty(prop) ? config[prop] : defaults[prop]
 
   return {
+    config: options,
+
     identity: pluginIdentity,
+    merge(other) {
+      return exports.historyPlugin({
+        depth: Math.max(this.config.depth, other.config.depth),
+        eventDelay: this.config.eventDelay,
+        preserveItems: this.config.preserveItems || other.config.preserveItems
+      })
+    },
     // FIXME merge
 
     stateFields: {history: new History(options, Branch.empty, Branch.empty, 0)}
