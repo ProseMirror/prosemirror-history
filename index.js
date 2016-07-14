@@ -1,3 +1,4 @@
+const RopeSequence = require("rope-sequence")
 const {Transform, Remapping} = require("../transform")
 const {createPluginIdentity} = require("../config")
 
@@ -34,7 +35,7 @@ class Branch {
 
     let end = this.items.length
     for (;; end--) {
-      let next = this.items[end - 1]
+      let next = this.items.get(end - 1)
       if (next.selection) { --end; break }
     }
 
@@ -44,10 +45,11 @@ class Branch {
       mapFrom = remap.maps.length
     }
     let transform = new Transform(doc)
-    let selection, items = this.items.slice()
+    let selection, keepUpto = this.items.length
+    let newItems = []
 
-    for (let i = this.items.length - 1;; i--) {
-      let cur = items[i]
+    for (let i = this.items.length - 1;; i--) { // FIXME use forEach in reverse?
+      let cur = this.items.get(i)
 
       if (!cur.step) {
         if (!remap) {
@@ -61,21 +63,20 @@ class Branch {
       if (remap) {
         let step = cur.step.map(remap.slice(mapFrom)), map
 
-        items[i] = new Item(cur.map)
         if (step && transform.maybeStep(step).doc) {
           map = transform.mapping.maps[transform.mapping.maps.length - 1]
-          items.push(new Item(map, null, null, items.length - i))
+          newItems.push(new Item(map, null, null, newItems.length + keepUpto - i))
         }
         mapFrom--
         if (map) remap.appendMap(map, mapFrom)
       } else {
-        items.pop()
+        keepUpto--
         transform.maybeStep(cur.step)
       }
 
       if (cur.selection) {
         selection = remap ? cur.selection.type.mapToken(cur.selection, remap.slice(mapFrom)) : cur.selection
-        return {branch: new Branch(items, this.eventCount - 1),
+        return {branch: new Branch(this.items.slice(0, keepUpto).append(newItems), this.eventCount - 1),
                 transform, selection}
       }
     }
@@ -84,34 +85,30 @@ class Branch {
   // : (Transform, Selection, ?[number])
   // Create a new branch with the given transform added.
   addTransform(transform, selection) {
-    let items = this.items.slice(), eventCount = this.eventCount + (selection ? 1 : 0)
+    let newItems = [], eventCount = this.eventCount + (selection ? 1 : 0)
     for (let i = 0; i < transform.steps.length; i++) {
       let step = transform.steps[i].invert(transform.docs[i])
-      items.push(new Item(transform.mapping.maps[i], step, selection))
+      newItems.push(new Item(transform.mapping.maps[i], step, selection))
       selection = null
     }
-    return new Branch(items, eventCount)
+    return new Branch(this.items.append(newItems), eventCount)
   }
 
   remapping(from, to) {
     let maps = [], mirrors = []
-    for (let i = from; i < to; i++) {
-      let item = this.items[i]
+    this.items.forEach((item, i) => {
       if (item.mirrorOffset != null) {
         let mirrorPos = i - item.mirrorOffset
         if (mirrorPos >= from) mirrors.push(maps.length - item.mirrorOffset, maps.length)
       }
       maps.push(item.map)
-    }
+    }, from, to)
     return new Remapping(maps, mirrors)
   }
 
   addMaps(array) {
-    if (this.eventCount == 0) return
-    let items = this.items.slice()
-    for (let i = 0; i < array.length; i++)
-      items.push(new Item(array[i]))
-    return new Remapping(this.eventCount, items)
+    if (this.eventCount == 0) return this
+    return new Branch(this.items.append(array.map(map => new Item(map))), this.eventCount)
   }
 
   // : ([PosMap], Transform, [number])
@@ -120,7 +117,7 @@ class Branch {
   // rebased on top of the remote changes, and include the position
   // maps for the remote changes in its array of items.
   rebased(rebasedTransform, rebasedCount) {
-    if (!this.eventCount) return
+    if (!this.eventCount) return this
 
     let rebasedItems = [], start = this.items.length - rebasedCount, startPos = 0
     if (start < 0) {
@@ -132,7 +129,7 @@ class Branch {
     let newUntil = rebasedTransform.steps.length
 
     for (let iItem = start, iRebased = startPos; iItem < this.items.length; iItem++, iRebased++) {
-      let item = this.items[iItem], pos = mapping.getMirror(iRebased)
+      let item = this.items.get(iItem), pos = mapping.getMirror(iRebased)
       if (pos == null) continue
       newUntil = Math.min(newUntil, pos)
       let map = mapping.maps[pos]
@@ -145,14 +142,12 @@ class Branch {
         rebasedItems.push(new Item(map))
       }
     }
-    let items = this.items.slice(0, start)
 
+    let newMaps = []
     for (let i = rebasedCount; i < newUntil; i++)
-      items.push(new Item(mapping.maps[i]))
-    for (let i = 0; i < rebasedItems.length; i++)
-      items.push(rebasedItems[i])
-
-    let branch = new Branch(items, this.eventCount)
+      newMaps.push(new Item(mapping.maps[i]))
+    let items = this.items.slice(0, start).append(newMaps).append(rebasedItems)
+    let branch = new Branch(items, this.eventCount) // FIXME might update event count
     if (branch.emptyItemCount() > max_empty_items)
       branch = branch.compress(this.items.length - rebasedItems.length)
     return branch
@@ -160,7 +155,7 @@ class Branch {
 
   emptyItemCount() {
     let count = 0
-    for (let i = 0; i < this.items.length; i++) if (!this.items[i].step) count++
+    this.items.forEach(item => { if (!item.step) count++ })
     return count
   }
 
@@ -174,8 +169,8 @@ class Branch {
     if (upto == null) upto = this.items.length
     let remap = this.remapping(0, upto), mapFrom = remap.maps.length
     let items = [], events = 0
-    for (let i = this.items.length - 1; i >= 0; i--) {
-      let item = this.items[i]
+    for (let i = this.items.length - 1; i >= 0; i--) { // FIXME reverse iter again
+      let item = this.items.get(i)
       if (i >= upto) {
         items.push(item)
       } else if (item.step) {
@@ -193,11 +188,11 @@ class Branch {
         items.push(item)
       }
     }
-    return new Branch(items.reverse(), events)
+    return new Branch(RopeSequence.from(items.reverse()), events)
   }
 }
 
-Branch.empty = new Branch([], 0)
+Branch.empty = new Branch(RopeSequence.empty, 0)
 
 // History items all have ids, but the meaning of these is somewhat
 // complicated.
