@@ -46,22 +46,20 @@ class Branch {
     }
     let transform = new Transform(doc)
     let selection, keepUpto = this.items.length
-    let newItems = []
+    let newItems = [], remaining
 
-    for (let i = this.items.length - 1;; i--) { // FIXME use forEach in reverse?
-      let cur = this.items.get(i)
-
-      if (!cur.step) {
+    this.items.forEach((item, i) => {
+      if (!item.step) {
         if (!remap) {
           remap = this.remapping(end, i + 1)
           mapFrom = remap.maps.length
         }
         mapFrom--
-        continue
+        return
       }
 
       if (remap) {
-        let step = cur.step.map(remap.slice(mapFrom)), map
+        let step = item.step.map(remap.slice(mapFrom)), map
 
         if (step && transform.maybeStep(step).doc) {
           map = transform.mapping.maps[transform.mapping.maps.length - 1]
@@ -71,15 +69,17 @@ class Branch {
         if (map) remap.appendMap(map, mapFrom)
       } else {
         keepUpto--
-        transform.maybeStep(cur.step)
+        transform.maybeStep(item.step)
       }
 
-      if (cur.selection) {
-        selection = remap ? cur.selection.type.mapToken(cur.selection, remap.slice(mapFrom)) : cur.selection
-        return {branch: new Branch(this.items.slice(0, keepUpto).append(newItems), this.eventCount - 1),
-                transform, selection}
+      if (item.selection) {
+        selection = remap ? item.selection.type.mapToken(item.selection, remap.slice(mapFrom)) : item.selection
+        remaining = new Branch(this.items.slice(0, keepUpto).append(newItems), this.eventCount - 1)
+        return false
       }
-    }
+    }, this.items.length, 0)
+
+    return {remaining, transform, selection}
   }
 
   // : (Transform, Selection, ?[number])
@@ -128,20 +128,21 @@ class Branch {
     let mapping = rebasedTransform.mapping
     let newUntil = rebasedTransform.steps.length
 
-    for (let iItem = start, iRebased = startPos; iItem < this.items.length; iItem++, iRebased++) {
-      let item = this.items.get(iItem), pos = mapping.getMirror(iRebased)
-      if (pos == null) continue
+    let iRebased = startPos
+    this.items.forEach(item => {
+      let pos = mapping.getMirror(iRebased++)
+      if (pos == null) return
       newUntil = Math.min(newUntil, pos)
       let map = mapping.maps[pos]
       if (item.step) {
         let step = rebasedTransform.steps[pos].invert(rebasedTransform.docs[pos])
         let selection = item.selection &&
-            item.selection.type.mapToken(item.selection, mapping.slice(iRebased, pos))
+            item.selection.type.mapToken(item.selection, mapping.slice(iRebased - 1, pos))
         rebasedItems.push(new Item(map, step, selection))
       } else {
         rebasedItems.push(new Item(map))
       }
-    }
+    }, start)
 
     let newMaps = []
     for (let i = rebasedCount; i < newUntil; i++)
@@ -169,8 +170,7 @@ class Branch {
     if (upto == null) upto = this.items.length
     let remap = this.remapping(0, upto), mapFrom = remap.maps.length
     let items = [], events = 0
-    for (let i = this.items.length - 1; i >= 0; i--) { // FIXME reverse iter again
-      let item = this.items.get(i)
+    this.items.forEach((item, i) => {
       if (i >= upto) {
         items.push(item)
       } else if (item.step) {
@@ -187,7 +187,7 @@ class Branch {
       } else {
         items.push(item)
       }
-    }
+    }, this.items.length, 0)
     return new Branch(RopeSequence.from(items.reverse()), events)
   }
 }
@@ -279,10 +279,10 @@ class History {
     let selection = pop.selection.type.fromToken(pop.selection, pop.transform.doc)
     let added = (redo ? this.done : this.undone).addTransform(pop.transform, selectionBeforeTransform.token)
 
-    let newHist = new History(this.options, redo ? added : pop.branch, redo ? pop.branch : added, 0)
+    let newHist = new History(this.options, redo ? added : pop.remaining, redo ? pop.remaining : added, 0)
     let newState = state.applyTransform(pop.transform, {selection, filter: false, historyIgnore: true})
         .update({history: newHist})
-    if (!pop.transform.steps.length && pop.branch.eventCount) return newHist.shift(newState, redo)
+    if (!pop.transform.steps.length && pop.remaining.eventCount) return newHist.shift(newState, redo)
     return newState
   }
 
