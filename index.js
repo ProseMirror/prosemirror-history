@@ -166,8 +166,7 @@ class Branch {
   // to ensure that only the items below a given level are compressed,
   // because `rebased` relies on a clean, untouched set of items in
   // order to associate old ids to rebased steps.
-  compress(upto) {
-    if (upto == null) upto = this.items.length
+  compress(upto = this.items.length) {
     let remap = this.remapping(0, upto), mapFrom = remap.maps.length
     let items = [], events = 0
     this.items.forEach((item, i) => {
@@ -215,7 +214,7 @@ class Item {
 }
 
 // ;; An undo/redo history manager for an editor instance.
-class History {
+class HistoryState {
   constructor(options, done, undone, lastAddedAt) {
     this.options = options
     this.done = done
@@ -233,24 +232,24 @@ class History {
       if (options.rebased) {
         // Used by the collab module to tell the history that some of its
         // content has been rebased.
-        return new History(this.options,
-                           this.done.rebased(transform, options.rebased),
-                           this.undone.rebased(transform, options.rebased),
-                           this.lastAddedAt)
+        return new HistoryState(this.options,
+                                this.done.rebased(transform, options.rebased),
+                                this.undone.rebased(transform, options.rebased),
+                                this.lastAddedAt)
       } else {
-        return new History(this.options,
-                           this.done.addMaps(transform.mapping.maps),
-                           this.undone.addMaps(transform.mapping.maps),
-                           this.lastAddedAt)
+        return new HistoryState(this.options,
+                                this.done.addMaps(transform.mapping.maps),
+                                this.undone.addMaps(transform.mapping.maps),
+                                this.lastAddedAt)
       }
     } else {
       let now = Date.now()
       // Group transforms that occur in quick succession into one event.
       let newGroup = now > this.lastAddedAt + this.options.eventDelay
-      return new History(this.options,
-                         this.done.addTransform(transform, newGroup ? oldState.selection.token : null),
-                         Branch.empty,
-                         now)
+      return new HistoryState(this.options,
+                              this.done.addTransform(transform, newGroup ? oldState.selection.token : null),
+                              Branch.empty,
+                              now)
     }
   }
 
@@ -265,7 +264,14 @@ class History {
   // :: () → History
   // Makes sure that the next change made will start a new history
   // event, not be added to the last event.
-  cut() { return new History(this.options, this.done, this.undone, 0) }
+  cut() {
+    return new HistoryState(this.options, this.done, this.undone, 0)
+  }
+
+  // Used by the test suite to force compression
+  forceCompress() {
+    return new HistoryState(this.options, this.done.compress(), this.undone, this.lastAddedAt)
+  }
 
   // : (Branch, Branch) → bool
   // Apply the latest event from one branch to the document and optionally
@@ -279,7 +285,7 @@ class History {
     let selection = pop.selection.type.fromToken(pop.selection, pop.transform.doc)
     let added = (redo ? this.done : this.undone).addTransform(pop.transform, selectionBeforeTransform.token)
 
-    let newHist = new History(this.options, redo ? added : pop.remaining, redo ? pop.remaining : added, 0)
+    let newHist = new HistoryState(this.options, redo ? added : pop.remaining, redo ? pop.remaining : added, 0)
     let newState = state.applyTransform(pop.transform, {selection, filter: false, historyIgnore: true})
         .update({history: newHist})
     if (!pop.transform.steps.length && pop.remaining.eventCount) return newHist.shift(newState, redo)
@@ -305,7 +311,7 @@ class History {
     return this.shift(state, true)
   }
 }
-exports.History = History
+exports.HistoryState = HistoryState
 
 const pluginIdentity = {plugin: "history"}
 
@@ -343,6 +349,6 @@ exports.historyPlugin = function(config) {
       })
     },
 
-    stateFields: {history: new History(options, Branch.empty, Branch.empty, 0)}
+    stateFields: {history: new HistoryState(options, Branch.empty, Branch.empty, 0)}
   }
 }
