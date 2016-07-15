@@ -1,6 +1,5 @@
 const RopeSequence = require("rope-sequence")
 const {Transform, Remapping} = require("../transform")
-const {createPluginIdentity} = require("../config")
 
 // ProseMirror's history isn't simply a way to roll back to a previous
 // state, because ProseMirror supports applying changes without adding
@@ -45,8 +44,8 @@ class Branch {
       mapFrom = remap.maps.length
     }
     let transform = new Transform(doc)
-    let selection, keepUpto = this.items.length
-    let newItems = [], remaining
+    let selection, remaining
+    let addAfter = [], addBefore = []
 
     this.items.forEach((item, i) => {
       if (!item.step) {
@@ -55,26 +54,27 @@ class Branch {
           mapFrom = remap.maps.length
         }
         mapFrom--
+        addBefore.push(item)
         return
       }
 
       if (remap) {
+        addBefore.push(new Item(item.map))
         let step = item.step.map(remap.slice(mapFrom)), map
 
         if (step && transform.maybeStep(step).doc) {
           map = transform.mapping.maps[transform.mapping.maps.length - 1]
-          newItems.push(new Item(map, null, null, newItems.length + keepUpto - i))
+          addAfter.push(new Item(map, null, null, addAfter.length + addBefore.length))
         }
         mapFrom--
         if (map) remap.appendMap(map, mapFrom)
       } else {
-        keepUpto--
         transform.maybeStep(item.step)
       }
 
       if (item.selection) {
         selection = remap ? item.selection.type.mapToken(item.selection, remap.slice(mapFrom)) : item.selection
-        remaining = new Branch(this.items.slice(0, keepUpto).append(newItems), this.eventCount - 1)
+        remaining = new Branch(this.items.slice(0, end).append(addBefore.reverse().concat(addAfter)), this.eventCount - 1)
         return false
       }
     }, this.items.length, 0)
@@ -256,11 +256,11 @@ class History {
 
   // :: number
   // The amount of undoable events available.
-  get undoDepth() { return this.done.events }
+  get undoDepth() { return this.done.eventCount }
 
   // :: number
   // The amount of redoable events available.
-  get redoDepth() { return this.undone.events }
+  get redoDepth() { return this.undone.eventCount }
 
   // :: () → History
   // Makes sure that the next change made will start a new history
@@ -307,7 +307,7 @@ class History {
 }
 exports.History = History
 
-const pluginIdentity = createPluginIdentity("history")
+const pluginIdentity = {plugin: "history"}
 
 const defaults = {
   depth: 100,
@@ -342,7 +342,6 @@ exports.historyPlugin = function(config) {
         preserveItems: this.config.preserveItems || other.config.preserveItems
       })
     },
-    // FIXME merge
 
     stateFields: {history: new History(options, Branch.empty, Branch.empty, 0)}
   }
