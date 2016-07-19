@@ -1,6 +1,8 @@
 const RopeSequence = require("rope-sequence")
 const {Transform, Mapping} = require("../transform")
 
+// FIXME stop relying on timing or take timestamps as input?
+
 // ProseMirror's history isn't simply a way to roll back to a previous
 // state, because ProseMirror supports applying changes without adding
 // them to the history (for example during collaboration).
