@@ -333,7 +333,7 @@ exports.history = function(config) {
   for (let prop in defaults) histOptions[prop] = config && config.hasOwnProperty(prop) ? config[prop] : defaults[prop]
 
   return {
-    stateFields: {
+    fields: {
       history: {
         init() {
           return new HistoryState(Branch.empty, Branch.empty, 0)
@@ -344,7 +344,7 @@ exports.history = function(config) {
       }
     },
 
-    stateMethods: {
+    methods: {
       undo() { return shift(this, false, histOptions) },
       redo() { return shift(this, true, histOptions) }
     }
