@@ -82,16 +82,18 @@ class Branch {
     return {remaining, transform, selection}
   }
 
-  // : (Transform, Selection, ?[number])
+  // : (Transform, Selection, Object)
   // Create a new branch with the given transform added.
-  addTransform(transform, selection) {
+  addTransform(transform, selection, histOptions) {
     let newItems = [], eventCount = this.eventCount + (selection ? 1 : 0)
     for (let i = 0; i < transform.steps.length; i++) {
       let step = transform.steps[i].invert(transform.docs[i])
       newItems.push(new Item(transform.mapping.maps[i], step, selection))
       selection = null
     }
-    return new Branch(this.items.append(newItems), eventCount)
+    let overflow = this.eventCount - histOptions.depth
+    let items = overflow > DEPTH_OVERFLOW ? cutOffEvents(this.items, overflow) : this.items
+    return new Branch(items.append(newItems), eventCount)
   }
 
   remapping(from, to) {
@@ -193,6 +195,17 @@ class Branch {
 
 Branch.empty = new Branch(RopeSequence.empty, 0)
 
+function cutOffEvents(items, n) {
+  let cutPoint
+  items.forEach((item, i) => {
+    if (item.selection && (--n == 0)) {
+      cutPoint = i
+      return false
+    }
+  })
+  return items.slice(cutPoint)
+}
+
 // History items all have ids, but the meaning of these is somewhat
 // complicated.
 //
@@ -215,42 +228,10 @@ class Item {
 
 // ;; An undo/redo history manager for an editor instance.
 class HistoryState {
-  constructor(options, done, undone, lastAddedAt) {
-    this.options = options
+  constructor(done, undone, lastAddedAt) {
     this.done = done
     this.undone = undone
     this.lastAddedAt = lastAddedAt
-  }
-
-  // : (Transform, Selection, Object)
-  // Record a transformation in undo history.
-  applyTransform(transform, options, oldState) {
-    if (options.historyIgnore) {
-      // Ignore
-      return this
-    } else if (options.addToHistory == false) {
-      if (options.rebased) {
-        // Used by the collab module to tell the history that some of its
-        // content has been rebased.
-        return new HistoryState(this.options,
-                                this.done.rebased(transform, options.rebased),
-                                this.undone.rebased(transform, options.rebased),
-                                this.lastAddedAt)
-      } else {
-        return new HistoryState(this.options,
-                                this.done.addMaps(transform.mapping.maps),
-                                this.undone.addMaps(transform.mapping.maps),
-                                this.lastAddedAt)
-      }
-    } else {
-      let now = Date.now()
-      // Group transforms that occur in quick succession into one event.
-      let newGroup = now > this.lastAddedAt + this.options.eventDelay
-      return new HistoryState(this.options,
-                              this.done.addTransform(transform, newGroup ? oldState.selection.token : null),
-                              Branch.empty,
-                              now)
-    }
   }
 
   // :: number
@@ -265,60 +246,68 @@ class HistoryState {
   // Makes sure that the next change made will start a new history
   // event, not be added to the last event.
   cut() {
-    return new HistoryState(this.options, this.done, this.undone, 0)
+    return new HistoryState(this.done, this.undone, 0)
   }
 
   // Used by the test suite to force compression
   forceCompress() {
-    return new HistoryState(this.options, this.done.compress(), this.undone, this.lastAddedAt)
-  }
-
-  // : (Branch, Branch) → bool
-  // Apply the latest event from one branch to the document and optionally
-  // shift the event onto the other branch. Returns true when an event could
-  // be shifted.
-  shift(state, redo) {
-    let pop = (redo ? this.undone : this.done).popEvent(state.doc, this.options.preserveItems)
-    if (!pop) return state
-
-    let selectionBeforeTransform = state.selection
-    let selection = pop.selection.type.fromToken(pop.selection, pop.transform.doc)
-    let added = (redo ? this.done : this.undone).addTransform(pop.transform, selectionBeforeTransform.token)
-
-    let newHist = new HistoryState(this.options, redo ? added : pop.remaining, redo ? pop.remaining : added, 0)
-    let newState = state.applyTransform(pop.transform, {selection, filter: false, historyIgnore: true})
-        .update({history: newHist})
-    if (!pop.transform.steps.length && pop.remaining.eventCount) return newHist.shift(newState, redo)
-    return newState
-  }
-
-  // :: () → state
-  // Undo one history event. The return value indicates whether
-  // anything was actually undone. Note that in a collaborative
-  // context, or when changes are [applied](#ProseMirror.apply)
-  // without adding them to the history, it is possible for
-  // [`undoDepth`](#History.undoDepth) to have a positive value, but
-  // this method to still return `false`, when non-history changes
-  // overwrote all remaining changes in the history.
-  undo(state) {
-    return this.shift(state, false)
-  }
-
-  // :: () → bool
-  // Redo one history event. The return value indicates whether
-  // anything was actually redone.
-  redo(state) {
-    return this.shift(state, true)
+    return new HistoryState(this.done.compress(), this.undone, this.lastAddedAt)
   }
 }
 exports.HistoryState = HistoryState
-
-const pluginIdentity = {plugin: "history"}
 
 const defaults = {
   depth: 100,
   eventDelay: 500,
   preserveItems: false
+}
+const DEPTH_OVERFLOW = 20
+
+// : (EditorState, Transform, Selection, Object)
+// Record a transformation in undo history.
+function applyTransform(state, transform, options, histOptions) {
+  let cur = state.history
+  if (options.historyState) {
+    return options.historyState
+  } else if (options.addToHistory == false) {
+    if (options.rebased) {
+      // Used by the collab module to tell the history that some of its
+      // content has been rebased.
+      return new HistoryState(cur.done.rebased(transform, options.rebased),
+                              cur.undone.rebased(transform, options.rebased),
+                              cur.lastAddedAt)
+    } else {
+      return new HistoryState(cur.done.addMaps(transform.mapping.maps),
+                              cur.undone.addMaps(transform.mapping.maps),
+                              cur.lastAddedAt)
+    }
+  } else {
+    let now = Date.now()
+    // Group transforms that occur in quick succession into one event.
+    let newGroup = now > cur.lastAddedAt + histOptions.eventDelay
+    return new HistoryState(cur.done.addTransform(transform, newGroup ? state.selection.token : null, histOptions),
+                            Branch.empty,
+                            now)
+  }
+}
+
+// : (EditorState, bool) → EditorState
+// Apply the latest event from one branch to the document and optionally
+// shift the event onto the other branch. Returns true when an event could
+// be shifted.
+function shift(state, redo, histOptions) {
+  let cur = state.history
+  let pop = (redo ? cur.undone : cur.done).popEvent(state.doc, histOptions.preserveItems)
+  if (!pop) return state
+
+  let selectionBeforeTransform = state.selection
+  let selection = pop.selection.type.fromToken(pop.selection, pop.transform.doc)
+  let added = (redo ? cur.done : cur.undone).addTransform(pop.transform, selectionBeforeTransform.token, histOptions)
+
+  let newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, 0)
+  let newState = state.applyTransform(pop.transform, {selection, filter: false, historyState: newHist})
+  if (!pop.transform.steps.length && pop.remaining.eventCount) return shift(newState, redo, histOptions)
+  return newState
 }
 
 // :: (Object) → Plugin
@@ -333,22 +322,29 @@ const defaults = {
 // **`eventDelay`**`: number`
 //   : The amount of milliseconds that must pass between changes to
 //     start a new history event. Defaults to 500.
-exports.historyPlugin = function(config) {
-  let options = {}
-  for (let prop in defaults) options[prop] = config && config.hasOwnProperty(prop) ? config[prop] : defaults[prop]
+//
+// **`preserveItems`**`: bool`
+//   : Whether to throw away undone items. Needs to be true to use the
+//     history together with the collaborative editing plugin.
+exports.history = function(config) {
+  let histOptions = {}
+  for (let prop in defaults) histOptions[prop] = config && config.hasOwnProperty(prop) ? config[prop] : defaults[prop]
 
   return {
-    config: options,
-
-    identity: pluginIdentity,
-    merge(other) {
-      return exports.historyPlugin({
-        depth: Math.max(this.config.depth, other.config.depth),
-        eventDelay: this.config.eventDelay,
-        preserveItems: this.config.preserveItems || other.config.preserveItems
-      })
+    stateFields: {
+      history: {
+        init() {
+          return new HistoryState(Branch.empty, Branch.empty, 0)
+        },
+        applyTransform(state, transform, options) {
+          return applyTransform(state, transform, options, histOptions)
+        }
+      }
     },
 
-    stateFields: {history: new HistoryState(options, Branch.empty, Branch.empty, 0)}
+    stateMethods: {
+      undo() { return shift(this, false, histOptions) },
+      redo() { return shift(this, true, histOptions) }
+    }
   }
 }
