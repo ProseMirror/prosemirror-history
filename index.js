@@ -1,5 +1,5 @@
 const RopeSequence = require("rope-sequence")
-const {Transform, Remapping} = require("../transform")
+const {Transform, Mapping} = require("../transform")
 
 // ProseMirror's history isn't simply a way to roll back to a previous
 // state, because ProseMirror supports applying changes without adding
@@ -105,7 +105,7 @@ class Branch {
       }
       maps.push(item.map)
     }, from, to)
-    return new Remapping(maps, mirrors)
+    return new Mapping(maps, mirrors)
   }
 
   addMaps(array) {
