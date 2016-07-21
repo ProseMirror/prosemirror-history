@@ -350,3 +350,25 @@ exports.history = function(config) {
     }
   }
 }
+
+/*
+// :: (EditorState, ?bool) → bool
+// Undo the most recent change event, if any.
+function undo(state, onAction) {
+  if (!state.history || state.history.undoDepth == 0) return false
+  return apply === false ? state : state.undo()
+}
+exports.undo = undo
+
+// :: (EditorState, ?bool) → bool
+// Redo the most recently undone change event, if any.
+function redo(state, onAction) {
+  if (!state.history || state.history.redoDepth == 0) return false
+  return apply === false ? state : state.redo()
+}
+exports.redo = redo
+
+  "Mod-Z": undo,
+  "Mod-Y": redo,
+  "Shift-Mod-Z": redo
+*/
