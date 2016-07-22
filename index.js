@@ -176,8 +176,8 @@ class Branch {
           })
           return false
         } else {
-          start = item.map.map(start, -1)
-          end = item.map.map(end, 1)
+          start = item.map.invert().map(start, -1)
+          end = item.map.invert().map(end, 1)
         }
       }, this.items.length, 0)
     })
