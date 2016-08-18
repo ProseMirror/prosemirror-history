@@ -88,14 +88,23 @@ class Branch {
   // Create a new branch with the given transform added.
   addTransform(transform, selection, histOptions) {
     let newItems = [], eventCount = this.eventCount + (selection ? 1 : 0)
+    let oldItems = this.items, lastItem = !histOptions.preserveItems && oldItems.length ? oldItems.get(oldItems.length - 1) : null
+
     for (let i = 0; i < transform.steps.length; i++) {
       let step = transform.steps[i].invert(transform.docs[i])
-      newItems.push(new Item(transform.mapping.maps[i], step, selection))
+      let item = new Item(transform.mapping.maps[i], step, selection), merged
+      if (merged = lastItem && lastItem.merge(item)) {
+        item = merged
+        if (i) newItems.pop()
+        else oldItems = oldItems.slice(0, oldItems.length - 1)
+      }
+      newItems.push(item)
       selection = null
+      if (!histOptions.preserveItems) lastItem = item
     }
     let overflow = this.eventCount - histOptions.depth
-    let items = overflow > DEPTH_OVERFLOW ? cutOffEvents(this.items, overflow) : this.items
-    return new Branch(items.append(newItems), eventCount)
+    if (overflow > DEPTH_OVERFLOW) oldItems = cutOffEvents(oldItems, overflow)
+    return new Branch(oldItems.append(newItems), eventCount)
   }
 
   remapping(from, to) {
@@ -164,26 +173,6 @@ class Branch {
     return count
   }
 
-  isAdjacentToLastStep(transform) {
-    if (this.eventCount == 0) return false
-    let map = transform.mapping.maps[0], adjacent = false
-    if (!map) return true
-    map.forEach((start, end) => {
-      this.items.forEach(item => {
-        if (item.step) {
-          item.map.forEach((_start, _end, rStart, rEnd) => {
-            if (start <= rEnd && end >= rStart) adjacent = true
-          })
-          return false
-        } else {
-          start = item.map.invert().map(start, -1)
-          end = item.map.invert().map(end, 1)
-        }
-      }, this.items.length, 0)
-    })
-    return adjacent
-  }
-
   // Compressing a branch means rewriting it to push the air (map-only
   // items) out. During collaboration, these naturally accumulate
   // because each remote change adds one. The `upto` argument is used
@@ -235,14 +224,21 @@ class Item {
     this.selection = selection
     this.mirrorOffset = mirrorOffset
   }
+
+  merge(other) {
+    if (this.step && other.step && !other.selection) {
+      let step = other.step.merge(this.step)
+      if (step) return new Item(step.posMap().invert(), step, this.selection)
+    }
+  }
 }
 
 // ;; An undo/redo history manager for an editor instance.
 class HistoryState {
-  constructor(done, undone, closed) {
+  constructor(done, undone, prevMap) {
     this.done = done
     this.undone = undone
-    this.closed = closed
+    this.prevMap = prevMap
   }
 
   // :: number
@@ -267,24 +263,44 @@ function recordTransform(state, action, options) {
   let cur = state.history, transform = action.transform
   if (action.historyState) {
     return action.historyState
-  } else if (action.addToHistory == false) {
-    if (action.rebased) {
-      // Used by the collab module to tell the history that some of its
-      // content has been rebased.
-      return new HistoryState(cur.done.rebased(transform, action.rebased),
-                              cur.undone.rebased(transform, action.rebased),
-                              this.closed)
-    } else {
-      return new HistoryState(cur.done.addMaps(transform.mapping.maps),
-                              cur.undone.addMaps(transform.mapping.maps),
-                              this.closed)
-    }
-  } else {
+  } else if (transform.steps.length == 0) {
+    return cur
+  } else if (action.addToHistory !== false) {
     // Group transforms that occur in quick succession into one event.
-    let newGroup = cur.closed || !cur.done.isAdjacentToLastStep(transform)
+    let newGroup = !isAdjacentToLastStep(transform, cur.prevMap, cur.done)
     return new HistoryState(cur.done.addTransform(transform, newGroup ? state.selection.token : null, options),
-                            Branch.empty, false)
+                            Branch.empty, transform.mapping.maps[transform.steps.length - 1])
+  } else if (action.rebased) {
+    // Used by the collab module to tell the history that some of its
+    // content has been rebased.
+    return new HistoryState(cur.done.rebased(transform, action.rebased),
+                            cur.undone.rebased(transform, action.rebased),
+                            cur.prevMap && transform.mapping.maps[transform.steps.length - 1])
+  } else {
+    return new HistoryState(cur.done.addMaps(transform.mapping.maps),
+                            cur.undone.addMaps(transform.mapping.maps),
+                            cur.prevMap)
   }
+}
+
+function isAdjacentToLastStep(transform, prevMap, done) {
+  if (!prevMap) return false
+  let firstMap = transform.mapping.maps[0], adjacent = false
+  if (!firstMap) return true
+  firstMap.forEach((start, end) => {
+    done.items.forEach(item => {
+      if (item.step) {
+        prevMap.forEach((_start, _end, rStart, rEnd) => {
+          if (start <= rEnd && end >= rStart) adjacent = true
+        })
+        return false
+      } else {
+        start = item.map.invert().map(start, -1)
+        end = item.map.invert().map(end, 1)
+      }
+    }, done.items.length, 0)
+  })
+  return adjacent
 }
 
 // : (EditorState, bool, Object) → Object
@@ -299,7 +315,7 @@ function histAction(state, redo, histOptions) {
   let selection = pop.selection.type.fromToken(pop.selection, pop.transform.doc)
   let added = (redo ? cur.done : cur.undone).addTransform(pop.transform, selectionBeforeTransform.token, histOptions)
 
-  let newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, true)
+  let newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, null)
   return pop.transform.action({selection, historyState: newHist, scrollIntoView: true})
 }
 
@@ -323,13 +339,13 @@ exports.history = function(config) {
     stateFields: {
       history: {
         init() {
-          return new HistoryState(Branch.empty, Branch.empty, true)
+          return new HistoryState(Branch.empty, Branch.empty, null)
         },
         applyAction(state, action) {
           if (action.type == "transform")
             return recordTransform(state, action, options)
           if (action.type == "historyClose")
-            return new HistoryState(state.history.done, state.history.undone, true)
+            return new HistoryState(state.history.done, state.history.undone, null)
           return state.history
         }
       }
