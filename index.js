@@ -191,13 +191,15 @@ class Branch {
         if (map) remap.appendMap(map, mapFrom)
         if (step) {
           let selection = item.selection && item.selection.type.mapToken(item.selection, remap.slice(mapFrom))
-          items.push(new Item(map.invert(), step, selection))
           if (selection) events++
+          let newItem = new Item(map.invert(), step, selection), merged, last = items.length - 1
+          if (merged = items.length && items[last].merge(newItem))
+            items[last] = merged
+          else
+            items.push(newItem)
         }
       } else if (item.map) {
         mapFrom--
-      } else {
-        items.push(item)
       }
     }, this.items.length, 0)
     return new Branch(RopeSequence.from(items.reverse()), events)
