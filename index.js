@@ -1,5 +1,6 @@
 const RopeSequence = require("rope-sequence")
 const {Mapping} = require("../transform")
+const {Selection} = require("../state")
 
 // FIXME stop relying on timing or take timestamps as input?
 
@@ -13,9 +14,9 @@ const {Mapping} = require("../transform")
 // map (which is needed to move changes below them to apply to the
 // current document).
 //
-// An item that has both a step and a selection token field is the
-// start of an 'event' -- a group of changes that will be undone or
-// redone at once. (It stores only a token, since that way we don't
+// An item that has both a step and a selection JSON representation is
+// the start of an 'event' -- a group of changes that will be undone
+// or redone at once. (It stores only the JSON, since that way we don't
 // have to provide a document until the selection is actually applied,
 // which is useful when compressing.)
 
@@ -28,7 +29,7 @@ class Branch {
     this.eventCount = eventCount
   }
 
-  // : (Node, bool, ?Item) → ?{transform: Transform, selection: SelectionToken}
+  // : (Node, bool, ?Item) → ?{transform: Transform, selection: Object}
   // Pop the latest event off the branch's history and apply it
   // to a document transform.
   popEvent(state, preserveItems) {
@@ -75,7 +76,7 @@ class Branch {
       }
 
       if (item.selection) {
-        selection = remap ? item.selection.type.mapToken(item.selection, remap.slice(mapFrom)) : item.selection
+        selection = remap ? Selection.mapJSON(item.selection, remap.slice(mapFrom)) : item.selection
         remaining = new Branch(this.items.slice(0, end).append(addBefore.reverse().concat(addAfter)), this.eventCount - 1)
         return false
       }
@@ -149,8 +150,7 @@ class Branch {
       let map = mapping.maps[pos]
       if (item.step) {
         let step = rebasedTransform.steps[pos].invert(rebasedTransform.docs[pos])
-        let selection = item.selection &&
-            item.selection.type.mapToken(item.selection, mapping.slice(iRebased - 1, pos))
+        let selection = item.selection && Selection.mapJSON(item.selection, mapping.slice(iRebased - 1, pos))
         rebasedItems.push(new Item(map, step, selection))
       } else {
         rebasedItems.push(new Item(map))
@@ -190,7 +190,7 @@ class Branch {
         mapFrom--
         if (map) remap.appendMap(map, mapFrom)
         if (step) {
-          let selection = item.selection && item.selection.type.mapToken(item.selection, remap.slice(mapFrom))
+          let selection = item.selection && Selection.mapJSON(item.selection, remap.slice(mapFrom))
           if (selection) events++
           let newItem = new Item(map.invert(), step, selection), merged, last = items.length - 1
           if (merged = items.length && items[last].merge(newItem))
@@ -270,7 +270,7 @@ function recordTransform(state, action, options) {
   } else if (action.addToHistory !== false) {
     // Group transforms that occur in quick succession into one event.
     let newGroup = !isAdjacentToLastStep(transform, cur.prevMap, cur.done)
-    return new HistoryState(cur.done.addTransform(transform, newGroup ? state.selection.token : null, options),
+    return new HistoryState(cur.done.addTransform(transform, newGroup ? state.selection.toJSON() : null, options),
                             Branch.empty, transform.mapping.maps[transform.steps.length - 1])
   } else if (action.rebased) {
     // Used by the collab module to tell the history that some of its
@@ -314,8 +314,8 @@ function histAction(state, redo, histOptions) {
   let pop = (redo ? cur.undone : cur.done).popEvent(state, histOptions.preserveItems)
 
   let selectionBeforeTransform = state.selection
-  let selection = pop.selection.type.fromToken(pop.selection, pop.transform.doc)
-  let added = (redo ? cur.done : cur.undone).addTransform(pop.transform, selectionBeforeTransform.token, histOptions)
+  let selection = Selection.fromJSON(pop.transform.doc, pop.selection)
+  let added = (redo ? cur.done : cur.undone).addTransform(pop.transform, selectionBeforeTransform.toJSON(), histOptions)
 
   let newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, null)
   return pop.transform.action({selection, historyState: newHist, scrollIntoView: true})
