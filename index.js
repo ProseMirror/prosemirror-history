@@ -235,7 +235,7 @@ class Item {
   }
 }
 
-// ;; An undo/redo history manager for an editor instance.
+// ::- An undo/redo history manager for an editor instance.
 class HistoryState {
   constructor(done, undone, prevMap) {
     this.done = done
