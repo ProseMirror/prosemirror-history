@@ -2,8 +2,6 @@ const RopeSequence = require("rope-sequence")
 const {Mapping} = require("../transform")
 const {Selection} = require("../state")
 
-// FIXME stop relying on timing or take timestamps as input?
-
 // ProseMirror's history isn't simply a way to roll back to a previous
 // state, because ProseMirror supports applying changes without adding
 // them to the history (for example during collaboration).
@@ -15,7 +13,7 @@ const {Selection} = require("../state")
 // current document).
 //
 // An item that has both a step and a selection JSON representation is
-// the start of an 'event' -- a group of changes that will be undone
+// the start of an 'event' — a group of changes that will be undone
 // or redone at once. (It stores only the JSON, since that way we don't
 // have to provide a document until the selection is actually applied,
 // which is useful when compressing.)
@@ -235,7 +233,9 @@ class Item {
   }
 }
 
-// ::- An undo/redo history manager for an editor instance.
+// ::- The value of the state field that tracks undo/redo history for
+// that state. Will be stored in the `history` property of the state
+// when the [history plugin](#history.history) is active.
 class HistoryState {
   constructor(done, undone, prevMap) {
     this.done = done
@@ -321,18 +321,29 @@ function histAction(state, redo, histOptions) {
   return pop.transform.action({selection, historyState: newHist, scrollIntoView: true})
 }
 
-// :: (Object) → Plugin
+// :: (Object) → Object
 // A plugin that enables the undo history for an editor. Has the
 // effect of setting the editor's `history` property to an instance of
-// `History`. Takes the following options:
+// `History`.
 //
-// **`depth`**`: number`
-//   : The amount of history events that are collected before the
+//   config::-
+//
+//     depth:: ?number
+//     The amount of history events that are collected before the
 //     oldest events are discarded. Defaults to 100.
 //
-// **`preserveItems`**`: bool`
-//   : Whether to throw away undone items. Needs to be true to use the
-//     history together with the collaborative editing plugin.
+//     preserveItems:: ?bool
+//     Whether to throw away undone items. **Must** be true when
+//     using the history together with the collaborative editing
+//     plugin.
+//
+//   return::-
+//
+//     undo:: (state: EditorState, onAction: ?(action: Action)) → bool
+//     A command function that undoes the last change, if any.
+//
+//     redo:: (state: EditorState, onAction: ?(action: Action)) → bool
+//     A command function that redoes the last undone change, if any.
 exports.history = function(config) {
   let options = {}
   for (let prop in defaults) options[prop] = config && config.hasOwnProperty(prop) ? config[prop] : defaults[prop]
