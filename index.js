@@ -1,6 +1,6 @@
 const RopeSequence = require("rope-sequence")
 const {Mapping} = require("../transform")
-const {Selection} = require("../state")
+const {Selection, Plugin} = require("../state")
 
 // ProseMirror's history isn't simply a way to roll back to a previous
 // state, because ProseMirror supports applying changes without adding
@@ -233,30 +233,18 @@ class Item {
   }
 }
 
-// ::- The value of the state field that tracks undo/redo history for
-// that state. Will be stored in the `history` property of the state
-// when the [history plugin](#history.history) is active.
+// The value of the state field that tracks undo/redo history for that
+// state. Will be stored in the `history` property of the state when
+// the history plugin is active.
 class HistoryState {
   constructor(done, undone, prevMap) {
     this.done = done
     this.undone = undone
     this.prevMap = prevMap
   }
-
-  // :: number
-  // The amount of undoable events available.
-  get undoDepth() { return this.done.eventCount }
-
-  // :: number
-  // The amount of redoable events available.
-  get redoDepth() { return this.undone.eventCount }
 }
 exports.HistoryState = HistoryState
 
-const defaults = {
-  depth: 100,
-  preserveItems: false
-}
 const DEPTH_OVERFLOW = 20
 
 // : (EditorState, Transform, Selection, Object)
@@ -321,60 +309,70 @@ function histAction(state, redo, histOptions) {
   return pop.transform.action({selection, historyState: newHist, scrollIntoView: true})
 }
 
-// :: (Object) → Object
-// A plugin that enables the undo history for an editor. Has the
-// effect of setting the editor's `history` property to an instance of
-// `History`.
-//
-//   config::-
-//
-//     depth:: ?number
-//     The amount of history events that are collected before the
-//     oldest events are discarded. Defaults to 100.
-//
-//     preserveItems:: ?bool
-//     Whether to throw away undone items. **Must** be true when
-//     using the history together with the collaborative editing
-//     plugin.
-//
-//   return::-
-//
-//     undo:: (state: EditorState, onAction: ?(action: Action)) → bool
-//     A command function that undoes the last change, if any.
-//
-//     redo:: (state: EditorState, onAction: ?(action: Action)) → bool
-//     A command function that redoes the last undone change, if any.
-function history(config) {
-  let options = {}
-  for (let prop in defaults) options[prop] = config && config.hasOwnProperty(prop) ? config[prop] : defaults[prop]
 
-  return {
-    stateFields: {
-      history: {
-        init() {
-          return new HistoryState(Branch.empty, Branch.empty, null)
-        },
-        applyAction(state, action) {
-          if (action.type == "transform")
-            return recordTransform(state, action, options)
-          if (action.type == "historyClose")
-            return new HistoryState(state.history.done, state.history.undone, null)
-          return state.history
-        }
+// :: Plugin
+// A plugin that enables the undo history for an editor. Supports
+// these configuration fields:
+//
+// **`depth`**`: number`
+// : The amount of history events that are collected before the
+//   oldest events are discarded. Defaults to 100.
+//
+// **`preserveItems`**`: bool`
+// : Whether to throw away undone items. **Must** be true when
+//   using the history together with the collaborative editing
+//   plugin.
+let history = new Plugin({
+  stateFields: {
+    history: {
+      init() {
+        return new HistoryState(Branch.empty, Branch.empty, null)
+      },
+      applyAction(state, action) {
+        if (action.type == "transform")
+          return recordTransform(state, action, history.find(state).config)
+        if (action.type == "historyClose")
+          return new HistoryState(state.history.done, state.history.undone, null)
+        return state.history
       }
-    },
-
-    undo(state, onAction) {
-      if (!state.history || state.history.undoDepth == 0) return false
-      if (onAction) onAction(histAction(state, false, options))
-      return true
-    },
-
-    redo(state, onAction) {
-      if (!state.history || state.history.redoDepth == 0) return false
-      if (onAction) onAction(histAction(state, true, options))
-      return true
     }
+  },
+
+  config: {
+    depth: 100,
+    preserveItems: false
   }
-}
+})
 exports.history = history
+
+// :: (state: EditorState, onAction: ?(action: Action)) → bool
+// A command function that undoes the last change, if any.
+function undo(state, onAction) {
+  if (!state.history || state.history.undoDepth == 0) return false
+  if (onAction) onAction(histAction(state, false, history.find(state).config))
+  return true
+}
+exports.undo = undo
+
+// :: (state: EditorState, onAction: ?(action: Action)) → bool
+// A command function that redoes the last undone change, if any.
+function redo(state, onAction) {
+  if (!state.history || state.history.redoDepth == 0) return false
+  if (onAction) onAction(histAction(state, true, history.find(state).config))
+  return true
+}
+exports.redo = redo
+
+// :: (EditorState) → number
+// The amount of undoable events available in a given state.
+function undoDepth(state) {
+  return state.history.done.eventCount
+}
+exports.undoDepth = undoDepth
+
+// :: (EditorState) → number
+// The amount of redoable events available in a given editor state.
+function redoDepth(state) {
+  return state.history.undone.eventCount
+}
+exports.redoDepth = redoDepth
