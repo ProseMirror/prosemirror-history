@@ -344,7 +344,7 @@ function histAction(state, redo, histOptions) {
 //
 //     redo:: (state: EditorState, onAction: ?(action: Action)) → bool
 //     A command function that redoes the last undone change, if any.
-exports.history = function(config) {
+function history(config) {
   let options = {}
   for (let prop in defaults) options[prop] = config && config.hasOwnProperty(prop) ? config[prop] : defaults[prop]
 
@@ -377,3 +377,4 @@ exports.history = function(config) {
     }
   }
 }
+exports.history = history
