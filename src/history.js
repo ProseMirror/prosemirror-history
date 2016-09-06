@@ -1,6 +1,6 @@
 const RopeSequence = require("rope-sequence")
-const {Mapping} = require("../transform")
-const {Selection, Plugin} = require("../state")
+const {Mapping} = require("prosemirror-transform")
+const {Selection, Plugin} = require("prosemirror-state")
 
 // ProseMirror's history isn't simply a way to roll back to a previous
 // state, because ProseMirror supports applying changes without adding
