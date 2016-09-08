@@ -1,4 +1,4 @@
-const {sameDoc, schema, doc, p, ul, li} = require("prosemirror-model/test/build")
+const {eq, schema, doc, p, ul, li} = require("prosemirror-model/test/build")
 const {TestState} = require("prosemirror-state/test/state")
 const ist = require("ist")
 
@@ -19,9 +19,9 @@ describe("history", () => {
     let state = mkState()
     state.type("a")
     state.type("b")
-    ist(state.doc, doc(p("ab")), sameDoc)
+    ist(state.doc, doc(p("ab")), eq)
     state.command(undo)
-    ist(state.doc, doc(p()), sameDoc)
+    ist(state.doc, doc(p()), eq)
   })
 
   it("enables redo", () => {
@@ -29,9 +29,9 @@ describe("history", () => {
     state.type("a")
     state.type("b")
     state.command(undo)
-    ist(state.doc, doc(p()), sameDoc)
+    ist(state.doc, doc(p()), eq)
     state.command(redo)
-    ist(state.doc, doc(p("ab")), sameDoc)
+    ist(state.doc, doc(p("ab")), eq)
   })
 
   it("tracks multiple levels of history", () => {
@@ -39,17 +39,17 @@ describe("history", () => {
     state.type("a")
     state.type("b")
     state.apply(state.tr.insertText("c", 1))
-    ist(state.doc, doc(p("cab")), sameDoc)
+    ist(state.doc, doc(p("cab")), eq)
     state.command(undo)
-    ist(state.doc, doc(p("ab")), sameDoc)
+    ist(state.doc, doc(p("ab")), eq)
     state.command(undo)
-    ist(state.doc, doc(p()), sameDoc)
+    ist(state.doc, doc(p()), eq)
     state.command(redo)
-    ist(state.doc, doc(p("ab")), sameDoc)
+    ist(state.doc, doc(p("ab")), eq)
     state.command(redo)
-    ist(state.doc, doc(p("cab")), sameDoc)
+    ist(state.doc, doc(p("cab")), eq)
     state.command(undo)
-    ist(state.doc, doc(p("ab")), sameDoc)
+    ist(state.doc, doc(p("ab")), eq)
   })
 
   it("allows changes that aren't part of the history", () => {
@@ -58,7 +58,7 @@ describe("history", () => {
     state.apply(state.tr.insertText("oops", 1).action({addToHistory: false}))
     state.apply(state.tr.insertText("!", 10).action({addToHistory: false}))
     state.command(undo)
-    ist(state.doc, doc(p("oops!")), sameDoc)
+    ist(state.doc, doc(p("oops!")), eq)
   })
 
   function unsyncedComplex(state, doCompress) {
@@ -67,14 +67,14 @@ describe("history", () => {
     state.type("!")
     state.apply(state.tr.insertText("....", 1).action({addToHistory: false}))
     state.apply(state.tr.split(3))
-    ist(state.doc, doc(p(".."), p("..hello!")), sameDoc)
+    ist(state.doc, doc(p(".."), p("..hello!")), eq)
     state.apply(state.tr.split(2).action({addToHistory: false}))
     if (doCompress) compress(state)
     state.command(undo)
     state.command(undo)
-    ist(state.doc, doc(p("."), p("...hello")), sameDoc)
+    ist(state.doc, doc(p("."), p("...hello")), eq)
     state.command(undo)
-    ist(state.doc, doc(p("."), p("...")), sameDoc)
+    ist(state.doc, doc(p("."), p("...")), eq)
   }
 
   it("can handle complex editing sequences", () => {
@@ -90,11 +90,11 @@ describe("history", () => {
     state.type("hello")
     state.apply({type: "historyClose"})
     state.apply(state.tr.delete(1, 6))
-    ist(state.doc, doc(p()), sameDoc)
+    ist(state.doc, doc(p()), eq)
     state.command(undo)
-    ist(state.doc, doc(p("hello")), sameDoc)
+    ist(state.doc, doc(p("hello")), eq)
     state.command(undo)
-    ist(state.doc, doc(p()), sameDoc)
+    ist(state.doc, doc(p()), eq)
   })
 
   it("supports overlapping edits that aren't collapsed", () => {
@@ -103,11 +103,11 @@ describe("history", () => {
     state.type("ello")
     state.apply({type: "historyClose"})
     state.apply(state.tr.delete(1, 6))
-    ist(state.doc, doc(p()), sameDoc)
+    ist(state.doc, doc(p()), eq)
     state.command(undo)
-    ist(state.doc, doc(p("hello")), sameDoc)
+    ist(state.doc, doc(p("hello")), eq)
     state.command(undo)
-    ist(state.doc, doc(p("h")), sameDoc)
+    ist(state.doc, doc(p("h")), eq)
   })
 
   it("supports overlapping unsynced deletes", () => {
@@ -116,9 +116,9 @@ describe("history", () => {
     state.apply({type: "historyClose"})
     state.type("hello")
     state.apply(state.tr.delete(1, 8).action({addToHistory: false}))
-    ist(state.doc, doc(p()), sameDoc)
+    ist(state.doc, doc(p()), eq)
     state.command(undo)
-    ist(state.doc, doc(p()), sameDoc)
+    ist(state.doc, doc(p()), eq)
   })
 
   it("can go back and forth through history multiple times", () => {
@@ -135,7 +135,7 @@ describe("history", () => {
     for (let i = 0; i < 6; i++) {
       let re = i % 2
       for (let j = 0; j < 4; j++) state.command(re ? redo : undo)
-      ist(state.doc, re ? doc(p("top"), p("zero one two three")) : doc(p()), sameDoc)
+      ist(state.doc, re ? doc(p("top"), p("zero one two three")) : doc(p()), eq)
     }
   })
 
@@ -145,7 +145,7 @@ describe("history", () => {
     state.apply(state.tr.split(1))
     state.apply(state.tr.insertText("zzz", 4).action({addToHistory: false}))
     state.command(undo)
-    ist(state.doc, doc(p("zzz")), sameDoc)
+    ist(state.doc, doc(p("zzz")), eq)
   })
 
   it("can go back and forth through history when preserving items", () => {
@@ -164,9 +164,9 @@ describe("history", () => {
     for (let i = 0; i < 3; i++) {
       if (i == 2) compress(state)
       for (let j = 0; j < 4; j++) state.command(undo)
-      ist(state.doc, doc(p("yyyxxx")), sameDoc)
+      ist(state.doc, doc(p("yyyxxx")), eq)
       for (let j = 0; j < 4; j++) state.command(redo)
-      ist(state.doc, doc(p("yyytop"), p("zero one twoxxx three")), sameDoc)
+      ist(state.doc, doc(p("yyytop"), p("zero one twoxxx three")), eq)
     }
   })
 
@@ -204,6 +204,6 @@ describe("history", () => {
     state.type("c")
     state.command(undo)
     state.command(undo)
-    ist(state.doc, doc(p()), sameDoc)
+    ist(state.doc, doc(p()), eq)
   })
 })
