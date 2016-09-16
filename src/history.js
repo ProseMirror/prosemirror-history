@@ -123,7 +123,7 @@ class Branch {
     return new Branch(this.items.append(array.map(map => new Item(map))), this.eventCount)
   }
 
-  // : ([PosMap], Transform, [number])
+  // : ([StepMap], Transform, [number])
   // When the collab module receives remote changes, the history has
   // to know about those, so that it can adjust the steps that were
   // rebased on top of the remote changes, and include the position
@@ -184,7 +184,7 @@ class Branch {
       if (i >= upto) {
         items.push(item)
       } else if (item.step) {
-        let step = item.step.map(remap.slice(mapFrom)), map = step && step.posMap()
+        let step = item.step.map(remap.slice(mapFrom)), map = step && step.getMap()
         mapFrom--
         if (map) remap.appendMap(map, mapFrom)
         if (step) {
@@ -228,7 +228,7 @@ class Item {
   merge(other) {
     if (this.step && other.step && !other.selection) {
       let step = other.step.merge(this.step)
-      if (step) return new Item(step.posMap().invert(), step, this.selection)
+      if (step) return new Item(step.getMap().invert(), step, this.selection)
     }
   }
 }
