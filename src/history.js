@@ -319,9 +319,10 @@ function histAction(state, redo, histOptions) {
 //   oldest events are discarded. Defaults to 100.
 //
 // **`preserveItems`**`: bool`
-// : Whether to throw away undone items. **Must** be true when
-//   using the history together with the collaborative editing
-//   plugin.
+// : Whether to preserve the steps exactly as they came in. **Must**
+//   be true when using the history together with the collaborative
+//   editing plugin, to allow syncing the history when concurrent
+//   changes come in.
 let history = new Plugin({
   stateFields: {
     history: {
