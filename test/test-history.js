@@ -2,7 +2,7 @@ const {eq, schema, doc, p} = require("prosemirror-model/test/build")
 const {TestState} = require("prosemirror-state/test/state")
 const ist = require("ist")
 
-const {history, undo, redo} = require("../src/history")
+const {history, undo, redo} = require("../dist/history")
 
 function mkState(doc, preserve) {
   return new TestState({doc, schema, plugins: [preserve ? history.configure({preserveItems: true}) : history]})
