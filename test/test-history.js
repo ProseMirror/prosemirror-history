@@ -11,7 +11,7 @@ function mkState(doc, preserve) {
 function compress(state) {
   // NOTE: This is mutating stuff that shouldn't be mutated. Not safe
   // to do outside of these tests.
-  state.state.history.done = state.state.history.done.compress()
+  history.getState(state.state).done = history.getState(state.state).done.compress()
 }
 
 describe("history", () => {
