@@ -1,6 +1,6 @@
 const RopeSequence = require("rope-sequence")
 const {Mapping} = require("prosemirror-transform")
-const {Selection, Plugin} = require("prosemirror-state")
+const {Selection, Plugin, PluginKey} = require("prosemirror-state")
 
 // ProseMirror's history isn't simply a way to roll back to a previous
 // state, because ProseMirror supports applying changes without adding
@@ -297,7 +297,8 @@ function isAdjacentToLastStep(transform, prevMap, done) {
 // Apply the latest event from one branch to the document and optionally
 // shift the event onto the other branch. Returns true when an event could
 // be shifted.
-function histAction(history, state, redo, histOptions) {
+function histAction(history, state, redo) {
+  let histOptions = historyKey.get(state).options.config
   let pop = (redo ? history.undone : history.done).popEvent(state, histOptions.preserveItems)
 
   let selectionBefore = state.selection
@@ -308,49 +309,52 @@ function histAction(history, state, redo, histOptions) {
   return pop.transform.action({selection, historyState: newHist, scrollIntoView: true})
 }
 
+const historyKey = new PluginKey("history")
 
-// :: Plugin
-// A plugin that enables the undo history for an editor. Supports
-// these configuration fields:
+// :: (?Object) → Plugin
+// Returns a plugin that enables the undo history for an editor.
 //
-// **`depth`**`: number`
-// : The amount of history events that are collected before the
-//   oldest events are discarded. Defaults to 100.
+//   config::-
+//   Supports the following configuration options:
 //
-// **`preserveItems`**`: bool`
-// : Whether to preserve the steps exactly as they came in. **Must**
-//   be true when using the history together with the collaborative
-//   editing plugin, to allow syncing the history when concurrent
-//   changes come in.
-let history = new Plugin({
-  state: {
-    init() {
-      return new HistoryState(Branch.empty, Branch.empty, null)
+//     depth:: number
+//     The amount of history events that are collected before the
+//     oldest events are discarded. Defaults to 100.
+//
+//     preserveItems:: bool
+//     Whether to preserve the steps exactly as they came in. **Must**
+//     be true when using the history together with the collaborative
+//     editing plugin, to allow syncing the history when concurrent
+//     changes come in.
+function history(config = {}) {
+  config = {depth: config.depth || 100, preserveItems: !!config.preserveItems}
+  return new Plugin({
+    key: historyKey,
+
+    state: {
+      init() {
+        return new HistoryState(Branch.empty, Branch.empty, null)
+      },
+      applyAction(action, hist, state) {
+        if (action.type == "transform")
+          return recordTransform(hist, state.selection, action, config)
+        if (action.type == "historyClose")
+          return new HistoryState(hist.done, hist.undone, null)
+        return hist
+      }
     },
-    applyAction(action, hist, state) {
-      if (action.type == "transform")
-        return recordTransform(hist, state.selection, action, history.find(state).config)
-      if (action.type == "historyClose")
-        return new HistoryState(hist.done, hist.undone, null)
-      return hist
-    }
-  },
 
-  name: "history",
-
-  config: {
-    depth: 100,
-    preserveItems: false
-  }
-})
+    config
+  })
+}
 exports.history = history
 
 // :: (state: EditorState, onAction: ?(action: Action)) → bool
 // A command function that undoes the last change, if any.
 function undo(state, onAction) {
-  let hist = history.getState(state)
+  let hist = historyKey.getState(state)
   if (!hist || hist.undoDepth == 0) return false
-  if (onAction) onAction(histAction(hist, state, false, history.find(state).config))
+  if (onAction) onAction(histAction(hist, state, false))
   return true
 }
 exports.undo = undo
@@ -358,9 +362,9 @@ exports.undo = undo
 // :: (state: EditorState, onAction: ?(action: Action)) → bool
 // A command function that redoes the last undone change, if any.
 function redo(state, onAction) {
-  let hist = history.getState(state)
+  let hist = historyKey.getState(state)
   if (!hist || hist.redoDepth == 0) return false
-  if (onAction) onAction(histAction(hist, state, true, history.find(state).config))
+  if (onAction) onAction(histAction(hist, state, true))
   return true
 }
 exports.redo = redo
@@ -368,13 +372,13 @@ exports.redo = redo
 // :: (EditorState) → number
 // The amount of undoable events available in a given state.
 function undoDepth(state) {
-  return history.getState(state).done.eventCount
+  return historyKey.getState(state).done.eventCount
 }
 exports.undoDepth = undoDepth
 
 // :: (EditorState) → number
 // The amount of redoable events available in a given editor state.
 function redoDepth(state) {
-  return history.getState(state).undone.eventCount
+  return historyKey.getState(state).undone.eventCount
 }
 exports.redoDepth = redoDepth

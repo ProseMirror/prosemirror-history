@@ -4,14 +4,16 @@ const ist = require("ist")
 
 const {history, undo, redo} = require("../dist/history")
 
+let plugin = history(), pluginPreserve = history({preserveItems: true})
+
 function mkState(doc, preserve) {
-  return new TestState({doc, schema, plugins: [preserve ? history.configure({preserveItems: true}) : history]})
+  return new TestState({doc, schema, plugins: [preserve ? pluginPreserve : plugin]})
 }
 
 function compress(state) {
   // NOTE: This is mutating stuff that shouldn't be mutated. Not safe
   // to do outside of these tests.
-  history.getState(state.state).done = history.getState(state.state).done.compress()
+  plugin.getState(state.state).done = plugin.getState(state.state).done.compress()
 }
 
 describe("history", () => {
