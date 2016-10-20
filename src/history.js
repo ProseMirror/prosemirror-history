@@ -234,8 +234,8 @@ class Item {
 }
 
 // The value of the state field that tracks undo/redo history for that
-// state. Will be stored in the `history` property of the state when
-// the history plugin is active.
+// state. Will be stored in the plugin state when the history plugin
+// is active.
 class HistoryState {
   constructor(done, undone, prevMap) {
     this.done = done
