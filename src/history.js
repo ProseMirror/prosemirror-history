@@ -237,10 +237,11 @@ class Item {
 // state. Will be stored in the plugin state when the history plugin
 // is active.
 class HistoryState {
-  constructor(done, undone, prevMap) {
+  constructor(done, undone, prevMap, prevTime) {
     this.done = done
     this.undone = undone
     this.prevMap = prevMap
+    this.prevTime = prevTime
   }
 }
 exports.HistoryState = HistoryState
@@ -257,19 +258,20 @@ function recordTransform(history, selection, action, options) {
     return history
   } else if (action.addToHistory !== false) {
     // Group transforms that occur in quick succession into one event.
-    let newGroup = !isAdjacentToLastStep(transform, history.prevMap, history.done)
+    let newGroup = history.prevTime < (action.time || 0) - options.newGroupDelay ||
+        !isAdjacentToLastStep(transform, history.prevMap, history.done)
     return new HistoryState(history.done.addTransform(transform, newGroup ? selection.toJSON() : null, options),
-                            Branch.empty, transform.mapping.maps[transform.steps.length - 1])
+                            Branch.empty, transform.mapping.maps[transform.steps.length - 1], action.time)
   } else if (action.rebased) {
     // Used by the collab module to tell the history that some of its
     // content has been rebased.
     return new HistoryState(history.done.rebased(transform, action.rebased),
                             history.undone.rebased(transform, action.rebased),
-                            history.prevMap && transform.mapping.maps[transform.steps.length - 1])
+                            history.prevMap && transform.mapping.maps[transform.steps.length - 1], history.prevTime)
   } else {
     return new HistoryState(history.done.addMaps(transform.mapping.maps),
                             history.undone.addMaps(transform.mapping.maps),
-                            history.prevMap)
+                            history.prevMap, history.prevTime)
   }
 }
 
@@ -305,7 +307,7 @@ function histAction(history, state, redo) {
   let selection = Selection.fromJSON(pop.transform.doc, pop.selection)
   let added = (redo ? history.done : history.undone).addTransform(pop.transform, selectionBefore.toJSON(), histOptions)
 
-  let newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, null)
+  let newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, null, 0)
   return pop.transform.action({selection, historyState: newHist, scrollIntoView: true})
 }
 
@@ -317,29 +319,36 @@ const historyKey = new PluginKey("history")
 //   config::-
 //   Supports the following configuration options:
 //
-//     depth:: number
+//     depth:: ?number
 //     The amount of history events that are collected before the
 //     oldest events are discarded. Defaults to 100.
 //
-//     preserveItems:: bool
+//     newGroupDelay:: number
+//     The delay between changes after which a new group should be
+//     started. Defaults to 500 (milliseconds). Note that when changes
+//     aren't adjacent, a new group is always started.
+//
+//     preserveItems:: ?bool
 //     Whether to preserve the steps exactly as they came in. **Must**
 //     be true when using the history together with the collaborative
 //     editing plugin, to allow syncing the history when concurrent
-//     changes come in.
-function history(config = {}) {
-  config = {depth: config.depth || 100, preserveItems: !!config.preserveItems}
+//     changes come in. Defaults to false.
+function history(config) {
+  config = {depth: config && config.depth || 100,
+            preserveItems: !!(config && config.preserveItems),
+            newGroupDelay: config && config.newGroupDelay || 500}
   return new Plugin({
     key: historyKey,
 
     state: {
       init() {
-        return new HistoryState(Branch.empty, Branch.empty, null)
+        return new HistoryState(Branch.empty, Branch.empty, null, 0)
       },
       applyAction(action, hist, state) {
         if (action.type == "transform")
           return recordTransform(hist, state.selection, action, config)
         if (action.type == "historyClose")
-          return new HistoryState(hist.done, hist.undone, null)
+          return new HistoryState(hist.done, hist.undone, null, 0)
         return hist
       }
     },
@@ -372,13 +381,15 @@ exports.redo = redo
 // :: (EditorState) → number
 // The amount of undoable events available in a given state.
 function undoDepth(state) {
-  return historyKey.getState(state).done.eventCount
+  let hist = historyKey.getState(state)
+  return hist ? hist.done.eventCount : 0
 }
 exports.undoDepth = undoDepth
 
 // :: (EditorState) → number
 // The amount of redoable events available in a given editor state.
 function redoDepth(state) {
-  return historyKey.getState(state).undone.eventCount
+  let hist = historyKey.getState(state)
+  return hist ? hist.undone.eventCount : 0
 }
 exports.redoDepth = redoDepth

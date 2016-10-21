@@ -2,12 +2,12 @@ const {eq, schema, doc, p} = require("prosemirror-model/test/build")
 const {TestState} = require("prosemirror-state/test/state")
 const ist = require("ist")
 
-const {history, undo, redo} = require("../dist/history")
+const {history, undo, redo, undoDepth} = require("../dist/history")
 
-let plugin = history(), pluginPreserve = history({preserveItems: true})
+let plugin = history()
 
-function mkState(doc, preserve) {
-  return new TestState({doc, schema, plugins: [preserve ? pluginPreserve : plugin]})
+function mkState(doc, config) {
+  return new TestState({doc, schema, plugins: [config ? history(config) : plugin]})
 }
 
 function compress(state) {
@@ -52,6 +52,18 @@ describe("history", () => {
     ist(state.doc, doc(p("cab")), eq)
     state.command(undo)
     ist(state.doc, doc(p("ab")), eq)
+  })
+
+  it("starts a new event when newGroupDelay elapses", () => {
+    let state = mkState(null, {newGroupDelay: 1000})
+    state.apply(state.tr.insertText("a").action({time: 1000}))
+    state.apply(state.tr.insertText("b").action({time: 1600}))
+    ist(undoDepth(state.state), 1)
+    state.apply(state.tr.insertText("c").action({time: 2700}))
+    ist(undoDepth(state.state), 2)
+    state.command(undo)
+    state.apply(state.tr.insertText("d").action({time: 2800}))
+    ist(undoDepth(state.state), 2)
   })
 
   it("allows changes that aren't part of the history", () => {
@@ -198,7 +210,7 @@ describe("history", () => {
   })
 
   it("handles change overwriting in item-preserving mode", () => {
-    let state = mkState(null, true)
+    let state = mkState(null, {preserveItems: true})
     state.type("a")
     state.type("b")
     state.apply({type: "historyClose"})
