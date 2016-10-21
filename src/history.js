@@ -299,16 +299,17 @@ function isAdjacentToLastStep(transform, prevMap, done) {
 // Apply the latest event from one branch to the document and optionally
 // shift the event onto the other branch. Returns true when an event could
 // be shifted.
-function histAction(history, state, redo) {
+function histAction(history, state, onAction, redo) {
   let histOptions = historyKey.get(state).options.config
   let pop = (redo ? history.undone : history.done).popEvent(state, histOptions.preserveItems)
+  if (!pop) return
 
   let selectionBefore = state.selection
   let selection = Selection.fromJSON(pop.transform.doc, pop.selection)
   let added = (redo ? history.done : history.undone).addTransform(pop.transform, selectionBefore.toJSON(), histOptions)
 
   let newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, null, 0)
-  return pop.transform.action({selection, historyState: newHist, scrollIntoView: true})
+  onAction(pop.transform.action({selection, historyState: newHist, scrollIntoView: true}))
 }
 
 const historyKey = new PluginKey("history")
@@ -362,8 +363,8 @@ exports.history = history
 // A command function that undoes the last change, if any.
 function undo(state, onAction) {
   let hist = historyKey.getState(state)
-  if (!hist || hist.undoDepth == 0) return false
-  if (onAction) onAction(histAction(hist, state, false))
+  if (!hist || hist.done.eventCount == 0) return false
+  if (onAction) histAction(hist, state, onAction, false)
   return true
 }
 exports.undo = undo
@@ -372,8 +373,8 @@ exports.undo = undo
 // A command function that redoes the last undone change, if any.
 function redo(state, onAction) {
   let hist = historyKey.getState(state)
-  if (!hist || hist.redoDepth == 0) return false
-  if (onAction) onAction(histAction(hist, state, true))
+  if (!hist || hist.undone.eventCount == 0) return false
+  if (onAction) histAction(hist, state, onAction, true)
   return true
 }
 exports.redo = redo
