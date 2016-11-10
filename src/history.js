@@ -309,7 +309,7 @@ function histAction(history, state, onAction, redo) {
   let added = (redo ? history.done : history.undone).addTransform(pop.transform, selectionBefore.toJSON(), histOptions)
 
   let newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, null, 0)
-  onAction(pop.transform.action({selection, historyState: newHist, scrollIntoView: true}))
+  onAction(pop.transform.action({selection, historyState: newHist, scrollIntoView: true, sealed: true}))
 }
 
 const historyKey = new PluginKey("history")
