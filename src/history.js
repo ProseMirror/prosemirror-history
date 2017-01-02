@@ -250,27 +250,28 @@ const DEPTH_OVERFLOW = 20
 
 // : (EditorState, Transform, Selection, Object)
 // Record a transformation in undo history.
-function recordTransform(history, selection, action, options) {
-  let transform = action.transform
-  if (action.historyState) {
-    return action.historyState
-  } else if (transform.steps.length == 0) {
-    return history
-  } else if (action.addToHistory !== false) {
+function applyTransaction(history, selection, tr, options) {
+  let newState = tr.get(historyKey), rebased
+  if (newState) {
+    return newState
+  } else if (tr.steps.length == 0) {
+    if (tr.get(closeHistoryKey)) return new HistoryState(history.done, history.undone, null, 0)
+    else return history
+  } else if (tr.get("addToHistory") !== false) {
     // Group transforms that occur in quick succession into one event.
-    let newGroup = history.prevTime < (action.time || 0) - options.newGroupDelay ||
-        !isAdjacentToLastStep(transform, history.prevMap, history.done)
-    return new HistoryState(history.done.addTransform(transform, newGroup ? selection.toJSON() : null, options),
-                            Branch.empty, transform.mapping.maps[transform.steps.length - 1], action.time)
-  } else if (action.rebased) {
+    let newGroup = history.prevTime < (tr.time || 0) - options.newGroupDelay ||
+        !isAdjacentToLastStep(tr, history.prevMap, history.done)
+    return new HistoryState(history.done.addTransform(tr, newGroup ? selection.toJSON() : null, options),
+                            Branch.empty, tr.mapping.maps[tr.steps.length - 1], tr.time)
+  } else if (rebased = tr.get("rebased")) {
     // Used by the collab module to tell the history that some of its
     // content has been rebased.
-    return new HistoryState(history.done.rebased(transform, action.rebased),
-                            history.undone.rebased(transform, action.rebased),
-                            history.prevMap && transform.mapping.maps[transform.steps.length - 1], history.prevTime)
+    return new HistoryState(history.done.rebased(tr, rebased),
+                            history.undone.rebased(tr, rebased),
+                            history.prevMap && tr.mapping.maps[tr.steps.length - 1], history.prevTime)
   } else {
-    return new HistoryState(history.done.addMaps(transform.mapping.maps),
-                            history.undone.addMaps(transform.mapping.maps),
+    return new HistoryState(history.done.addMaps(tr.mapping.maps),
+                            history.undone.addMaps(tr.mapping.maps),
                             history.prevMap, history.prevTime)
   }
 }
@@ -295,11 +296,11 @@ function isAdjacentToLastStep(transform, prevMap, done) {
   return adjacent
 }
 
-// : (EditorState, bool, Object) → Object
+// : (HistoryState, EditorState, (tr: Transaction), bool)
 // Apply the latest event from one branch to the document and optionally
 // shift the event onto the other branch. Returns true when an event could
 // be shifted.
-function histAction(history, state, onAction, redo) {
+function histTransaction(history, state, dispatch, redo) {
   let histOptions = historyKey.get(state).options.config
   let pop = (redo ? history.undone : history.done).popEvent(state, histOptions.preserveItems)
   if (!pop) return
@@ -309,10 +310,16 @@ function histAction(history, state, onAction, redo) {
   let added = (redo ? history.done : history.undone).addTransform(pop.transform, selectionBefore.toJSON(), histOptions)
 
   let newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, null, 0)
-  onAction(pop.transform.action({selection, historyState: newHist, scrollIntoView: true, sealed: true}))
+  dispatch(pop.transform.setSelection(selection).set(historyKey, newHist).scrollIntoView())
 }
 
+function closeHistory(state) {
+  return state.tr.set(closeHistoryKey, true)
+}
+exports.closeHistory = closeHistory
+
 const historyKey = new PluginKey("history")
+const closeHistoryKey = new PluginKey("closeHistory")
 
 // :: (?Object) → Plugin
 // Returns a plugin that enables the undo history for an editor.
@@ -345,12 +352,8 @@ function history(config) {
       init() {
         return new HistoryState(Branch.empty, Branch.empty, null, 0)
       },
-      applyAction(action, hist, state) {
-        if (action.type == "transform")
-          return recordTransform(hist, state.selection, action, config)
-        if (action.type == "historyClose")
-          return new HistoryState(hist.done, hist.undone, null, 0)
-        return hist
+      apply(tr, hist, state) {
+        return applyTransaction(hist, state.selection, tr, config)
       }
     },
 
@@ -359,22 +362,22 @@ function history(config) {
 }
 exports.history = history
 
-// :: (state: EditorState, onAction: ?(action: Action)) → bool
+// :: (EditorState, ?(tr: Transaction)) → bool
 // A command function that undoes the last change, if any.
-function undo(state, onAction) {
+function undo(state, dispatch) {
   let hist = historyKey.getState(state)
   if (!hist || hist.done.eventCount == 0) return false
-  if (onAction) histAction(hist, state, onAction, false)
+  if (dispatch) histTransaction(hist, state, dispatch, false)
   return true
 }
 exports.undo = undo
 
-// :: (state: EditorState, onAction: ?(action: Action)) → bool
+// :: (EditorState, ?(tr: Transaction)) → bool
 // A command function that redoes the last undone change, if any.
-function redo(state, onAction) {
+function redo(state, dispatch) {
   let hist = historyKey.getState(state)
   if (!hist || hist.undone.eventCount == 0) return false
-  if (onAction) histAction(hist, state, onAction, true)
+  if (dispatch) histTransaction(hist, state, dispatch, true)
   return true
 }
 exports.redo = redo
