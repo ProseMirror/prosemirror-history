@@ -251,19 +251,19 @@ const DEPTH_OVERFLOW = 20
 // : (EditorState, Transform, Selection, Object)
 // Record a transformation in undo history.
 function applyTransaction(history, selection, tr, options) {
-  let newState = tr.get(historyKey), rebased
+  let newState = tr.getMeta(historyKey), rebased
   if (newState) {
     return newState
   } else if (tr.steps.length == 0) {
-    if (tr.get(closeHistoryKey)) return new HistoryState(history.done, history.undone, null, 0)
+    if (tr.getMeta(closeHistoryKey)) return new HistoryState(history.done, history.undone, null, 0)
     else return history
-  } else if (tr.get("addToHistory") !== false) {
+  } else if (tr.getMeta("addToHistory") !== false) {
     // Group transforms that occur in quick succession into one event.
     let newGroup = history.prevTime < (tr.time || 0) - options.newGroupDelay ||
         !isAdjacentToLastStep(tr, history.prevMap, history.done)
     return new HistoryState(history.done.addTransform(tr, newGroup ? selection.toJSON() : null, options),
                             Branch.empty, tr.mapping.maps[tr.steps.length - 1], tr.time)
-  } else if (rebased = tr.get("rebased")) {
+  } else if (rebased = tr.getMeta("rebased")) {
     // Used by the collab module to tell the history that some of its
     // content has been rebased.
     return new HistoryState(history.done.rebased(tr, rebased),
@@ -310,11 +310,11 @@ function histTransaction(history, state, dispatch, redo) {
   let added = (redo ? history.done : history.undone).addTransform(pop.transform, selectionBefore.toJSON(), histOptions)
 
   let newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, null, 0)
-  dispatch(pop.transform.setSelection(selection).set(historyKey, newHist).scrollIntoView())
+  dispatch(pop.transform.setSelection(selection).setMeta(historyKey, newHist).scrollIntoView())
 }
 
 function closeHistory(state) {
-  return state.tr.set(closeHistoryKey, true)
+  return state.tr.setMeta(closeHistoryKey, true)
 }
 exports.closeHistory = closeHistory
 
@@ -322,7 +322,19 @@ const historyKey = new PluginKey("history")
 const closeHistoryKey = new PluginKey("closeHistory")
 
 // :: (?Object) → Plugin
-// Returns a plugin that enables the undo history for an editor.
+// Returns a plugin that enables the undo history for an editor. The
+// plugin will track undo and redo stacks, which the
+// [`undo`](##history.undo) and [`redo`](##history.redo) commands can
+// use to move the state back and forward.
+//
+// Note that this implementation doesn't implement history by simply
+// resetting back to some previous state. In order to support
+// collaborative editing (as well as some other use cases), it
+// selectively rolls back some transactions, but not other (for
+// example, not the changes made by other users). You can set an
+// `"addToHistory"` [metadata property](##state.Transaction.setMeta)
+// of `false` on a transaction to prevent it from being rolled back by
+// undo.
 //
 //   config::-
 //   Supports the following configuration options:
