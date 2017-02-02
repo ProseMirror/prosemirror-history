@@ -139,6 +139,7 @@ class Branch {
 
     let mapping = rebasedTransform.mapping
     let newUntil = rebasedTransform.steps.length
+    let eventCount = this.eventCount
 
     let iRebased = startPos
     this.items.forEach(item => {
@@ -151,6 +152,7 @@ class Branch {
         let selection = item.selection && Selection.mapJSON(item.selection, mapping.slice(iRebased - 1, pos))
         rebasedItems.push(new Item(map, step, selection))
       } else {
+        if (item.selection) eventCount--
         rebasedItems.push(new Item(map))
       }
     }, start)
@@ -159,7 +161,7 @@ class Branch {
     for (let i = rebasedCount; i < newUntil; i++)
       newMaps.push(new Item(mapping.maps[i]))
     let items = this.items.slice(0, start).append(newMaps).append(rebasedItems)
-    let branch = new Branch(items, this.eventCount) // FIXME might update event count
+    let branch = new Branch(items, eventCount)
     if (branch.emptyItemCount() > max_empty_items)
       branch = branch.compress(this.items.length - rebasedItems.length)
     return branch
