@@ -101,8 +101,11 @@ class Branch {
       selection = null
       if (!histOptions.preserveItems) lastItem = item
     }
-    let overflow = this.eventCount - histOptions.depth
-    if (overflow > DEPTH_OVERFLOW) oldItems = cutOffEvents(oldItems, overflow)
+    let overflow = eventCount - histOptions.depth
+    if (overflow > DEPTH_OVERFLOW) {
+      oldItems = cutOffEvents(oldItems, overflow)
+      eventCount -= overflow
+    }
     return new Branch(oldItems.append(newItems), eventCount)
   }
 
@@ -185,6 +188,7 @@ class Branch {
     this.items.forEach((item, i) => {
       if (i >= upto) {
         items.push(item)
+        if (item.selection) events++
       } else if (item.step) {
         let step = item.step.map(remap.slice(mapFrom)), map = step && step.getMap()
         mapFrom--
@@ -211,7 +215,7 @@ Branch.empty = new Branch(RopeSequence.empty, 0)
 function cutOffEvents(items, n) {
   let cutPoint
   items.forEach((item, i) => {
-    if (item.selection && (--n == 0)) {
+    if (item.selection && (n-- == 0)) {
       cutPoint = i
       return false
     }
