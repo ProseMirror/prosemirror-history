@@ -307,7 +307,7 @@ function isAdjacentToLastStep(transform, prevMap, done) {
 // shift the event onto the other branch. Returns true when an event could
 // be shifted.
 function histTransaction(history, state, dispatch, redo) {
-  let histOptions = historyKey.get(state).options.config
+  let histOptions = historyKey.get(state).spec.config
   let pop = (redo ? history.undone : history.done).popEvent(state, histOptions.preserveItems)
   if (!pop) return
 
