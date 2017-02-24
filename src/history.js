@@ -134,25 +134,21 @@ class Branch {
   rebased(rebasedTransform, rebasedCount) {
     if (!this.eventCount) return this
 
-    let rebasedItems = [], start = this.items.length - rebasedCount, startPos = 0
-    if (start < 0) {
-      startPos = -start
-      start = 0
-    }
+    let rebasedItems = [], start = Math.max(0, this.items.length - rebasedCount)
 
     let mapping = rebasedTransform.mapping
     let newUntil = rebasedTransform.steps.length
     let eventCount = this.eventCount
 
-    let iRebased = startPos
+    let iRebased = rebasedCount
     this.items.forEach(item => {
-      let pos = mapping.getMirror(iRebased++)
+      let pos = mapping.getMirror(--iRebased)
       if (pos == null) return
       newUntil = Math.min(newUntil, pos)
       let map = mapping.maps[pos]
       if (item.step) {
         let step = rebasedTransform.steps[pos].invert(rebasedTransform.docs[pos])
-        let selection = item.selection && Selection.mapJSON(item.selection, mapping.slice(iRebased - 1, pos))
+        let selection = item.selection && Selection.mapJSON(item.selection, mapping.slice(iRebased, pos))
         rebasedItems.push(new Item(map, step, selection))
       } else {
         if (item.selection) eventCount--
