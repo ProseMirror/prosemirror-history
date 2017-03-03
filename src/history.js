@@ -254,11 +254,12 @@ const DEPTH_OVERFLOW = 20
 // Record a transformation in undo history.
 function applyTransaction(history, selection, tr, options) {
   let newState = tr.getMeta(historyKey), rebased
-  if (newState) {
-    return newState
-  } else if (tr.steps.length == 0) {
-    if (tr.getMeta(closeHistoryKey)) return new HistoryState(history.done, history.undone, null, 0)
-    else return history
+  if (newState) return newState
+
+  if (tr.getMeta(closeHistoryKey)) history = new HistoryState(history.done, history.undone, null, 0)
+
+  if (tr.steps.length == 0) {
+    return history
   } else if (tr.getMeta("addToHistory") !== false) {
     // Group transforms that occur in quick succession into one event.
     let newGroup = history.prevTime < (tr.time || 0) - options.newGroupDelay ||
@@ -315,8 +316,12 @@ function histTransaction(history, state, dispatch, redo) {
   dispatch(pop.transform.setSelection(selection).setMeta(historyKey, newHist).scrollIntoView())
 }
 
-function closeHistory(state) {
-  return state.tr.setMeta(closeHistoryKey, true)
+// :: (Transaction) → Transaction
+// Set a flag on the given transaction that will prevent further steps
+// from being appended to an existing history event (so that they
+// require a separate undo command to undo).
+function closeHistory(tr) {
+  return tr.setMeta(closeHistoryKey, true)
 }
 exports.closeHistory = closeHistory
 

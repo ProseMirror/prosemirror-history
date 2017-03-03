@@ -9,3 +9,5 @@ An implementation of undo/redo history for ProseMirror.
 @undoDepth
 
 @redoDepth
+
+@closeHistory
