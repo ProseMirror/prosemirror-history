@@ -1,4 +1,4 @@
-const {eq, schema, doc, p} = require("prosemirror-model/test/build")
+const {eq, schema, doc, p} = require("prosemirror-test-builder")
 const {TestState} = require("prosemirror-state/test/state")
 const ist = require("ist")
 
