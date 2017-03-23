@@ -258,12 +258,13 @@ function applyTransaction(history, selection, tr, options) {
 
   if (tr.getMeta(closeHistoryKey)) history = new HistoryState(history.done, history.undone, null, 0)
 
+  let appended = tr.getMeta("appendedTransaction")
   if (tr.steps.length == 0) {
     return history
-  } else if (tr.getMeta("addToHistory") !== false) {
+  } else if ((appended || tr).getMeta("addToHistory") !== false) {
     // Group transforms that occur in quick succession into one event.
     let newGroup = history.prevTime < (tr.time || 0) - options.newGroupDelay ||
-        !isAdjacentToLastStep(tr, history.prevMap, history.done)
+        !appended && !isAdjacentToLastStep(tr, history.prevMap, history.done)
     return new HistoryState(history.done.addTransform(tr, newGroup ? selection.toJSON() : null, options),
                             Branch.empty, tr.mapping.maps[tr.steps.length - 1], tr.time)
   } else if (rebased = tr.getMeta("rebased")) {
