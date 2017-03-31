@@ -1,6 +1,6 @@
 const RopeSequence = require("rope-sequence")
 const {Mapping} = require("prosemirror-transform")
-const {Selection, Plugin, PluginKey} = require("prosemirror-state")
+const {Plugin, PluginKey} = require("prosemirror-state")
 
 // ProseMirror's history isn't simply a way to roll back to a previous
 // state, because ProseMirror supports applying changes without adding
@@ -12,11 +12,11 @@ const {Selection, Plugin, PluginKey} = require("prosemirror-state")
 // map (which is needed to move changes below them to apply to the
 // current document).
 //
-// An item that has both a step and a selection JSON representation is
-// the start of an 'event' — a group of changes that will be undone
-// or redone at once. (It stores only the JSON, since that way we don't
-// have to provide a document until the selection is actually applied,
-// which is useful when compressing.)
+// An item that has both a step and a selection bookmark is the start
+// of an 'event' — a group of changes that will be undone or redone at
+// once. (It stores only the bookmark, since that way we don't have to
+// provide a document until the selection is actually applied, which
+// is useful when compressing.)
 
 // Used to schedule history compression
 const max_empty_items = 500
@@ -74,7 +74,7 @@ class Branch {
       }
 
       if (item.selection) {
-        selection = remap ? Selection.mapJSON(item.selection, remap.slice(mapFrom)) : item.selection
+        selection = remap ? item.selection.map(remap.slice(mapFrom)) : item.selection
         remaining = new Branch(this.items.slice(0, end).append(addBefore.reverse().concat(addAfter)), this.eventCount - 1)
         return false
       }
@@ -148,7 +148,7 @@ class Branch {
       let map = mapping.maps[pos]
       if (item.step) {
         let step = rebasedTransform.steps[pos].invert(rebasedTransform.docs[pos])
-        let selection = item.selection && Selection.mapJSON(item.selection, mapping.slice(iRebased, pos))
+        let selection = item.selection && item.selection.map(mapping.slice(iRebased, pos))
         rebasedItems.push(new Item(map, step, selection))
       } else {
         if (item.selection) eventCount--
@@ -190,7 +190,7 @@ class Branch {
         mapFrom--
         if (map) remap.appendMap(map, mapFrom)
         if (step) {
-          let selection = item.selection && Selection.mapJSON(item.selection, remap.slice(mapFrom))
+          let selection = item.selection && item.selection.map(remap.slice(mapFrom))
           if (selection) events++
           let newItem = new Item(map.invert(), step, selection), merged, last = items.length - 1
           if (merged = items.length && items[last].merge(newItem))
@@ -265,7 +265,7 @@ function applyTransaction(history, selection, tr, options) {
     // Group transforms that occur in quick succession into one event.
     let newGroup = history.prevTime < (tr.time || 0) - options.newGroupDelay ||
         !appended && !isAdjacentToLastStep(tr, history.prevMap, history.done)
-    return new HistoryState(history.done.addTransform(tr, newGroup ? selection.toJSON() : null, options),
+    return new HistoryState(history.done.addTransform(tr, newGroup ? selection.getBookmark() : null, options),
                             Branch.empty, tr.mapping.maps[tr.steps.length - 1], tr.time)
   } else if (rebased = tr.getMeta("rebased")) {
     // Used by the collab module to tell the history that some of its
@@ -310,8 +310,8 @@ function histTransaction(history, state, dispatch, redo) {
   if (!pop) return
 
   let selectionBefore = state.selection
-  let selection = Selection.fromJSON(pop.transform.doc, pop.selection)
-  let added = (redo ? history.done : history.undone).addTransform(pop.transform, selectionBefore.toJSON(), histOptions)
+  let selection = pop.selection.resolve(pop.transform.doc)
+  let added = (redo ? history.done : history.undone).addTransform(pop.transform, selectionBefore.getBookmark(), histOptions)
 
   let newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, null, 0)
   dispatch(pop.transform.setSelection(selection).setMeta(historyKey, newHist).scrollIntoView())
