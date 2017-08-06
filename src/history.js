@@ -1,6 +1,6 @@
-const RopeSequence = require("rope-sequence")
-const {Mapping} = require("prosemirror-transform")
-const {Plugin, PluginKey} = require("prosemirror-state")
+import RopeSequence from "rope-sequence"
+import {Mapping} from "prosemirror-transform"
+import {Plugin, PluginKey} from "prosemirror-state"
 
 // ProseMirror's history isn't simply a way to roll back to a previous
 // state, because ProseMirror supports applying changes without adding
@@ -238,7 +238,7 @@ class Item {
 // The value of the state field that tracks undo/redo history for that
 // state. Will be stored in the plugin state when the history plugin
 // is active.
-class HistoryState {
+export class HistoryState {
   constructor(done, undone, prevMap, prevTime) {
     this.done = done
     this.undone = undone
@@ -246,7 +246,6 @@ class HistoryState {
     this.prevTime = prevTime
   }
 }
-exports.HistoryState = HistoryState
 
 const DEPTH_OVERFLOW = 20
 
@@ -321,10 +320,9 @@ function histTransaction(history, state, dispatch, redo) {
 // Set a flag on the given transaction that will prevent further steps
 // from being appended to an existing history event (so that they
 // require a separate undo command to undo).
-function closeHistory(tr) {
+export function closeHistory(tr) {
   return tr.setMeta(closeHistoryKey, true)
 }
-exports.closeHistory = closeHistory
 
 const historyKey = new PluginKey("history")
 const closeHistoryKey = new PluginKey("closeHistory")
@@ -361,7 +359,7 @@ const closeHistoryKey = new PluginKey("closeHistory")
 //     be true when using the history together with the collaborative
 //     editing plugin, to allow syncing the history when concurrent
 //     changes come in. Defaults to false.
-function history(config) {
+export function history(config) {
   config = {depth: config && config.depth || 100,
             preserveItems: !!(config && config.preserveItems),
             newGroupDelay: config && config.newGroupDelay || 500}
@@ -380,40 +378,35 @@ function history(config) {
     config
   })
 }
-exports.history = history
 
 // :: (EditorState, ?(tr: Transaction)) → bool
 // A command function that undoes the last change, if any.
-function undo(state, dispatch) {
+export function undo(state, dispatch) {
   let hist = historyKey.getState(state)
   if (!hist || hist.done.eventCount == 0) return false
   if (dispatch) histTransaction(hist, state, dispatch, false)
   return true
 }
-exports.undo = undo
 
 // :: (EditorState, ?(tr: Transaction)) → bool
 // A command function that redoes the last undone change, if any.
-function redo(state, dispatch) {
+export function redo(state, dispatch) {
   let hist = historyKey.getState(state)
   if (!hist || hist.undone.eventCount == 0) return false
   if (dispatch) histTransaction(hist, state, dispatch, true)
   return true
 }
-exports.redo = redo
 
 // :: (EditorState) → number
 // The amount of undoable events available in a given state.
-function undoDepth(state) {
+export function undoDepth(state) {
   let hist = historyKey.getState(state)
   return hist ? hist.done.eventCount : 0
 }
-exports.undoDepth = undoDepth
 
 // :: (EditorState) → number
 // The amount of redoable events available in a given editor state.
-function redoDepth(state) {
+export function redoDepth(state) {
   let hist = historyKey.getState(state)
   return hist ? hist.undone.eventCount : 0
 }
-exports.redoDepth = redoDepth
