@@ -1,8 +1,7 @@
 module.exports = {
-  entry: "./src/history.js",
-  dest: "dist/history.js",
-  format: "cjs",
-  sourceMap: true,
+  input: "./src/history.js",
+  output: {format: "cjs", file: "dist/history.js"},
+  sourcemap: true,
   plugins: [require("rollup-plugin-buble")()],
   external(id) { return !/^[\.\/]/.test(id) }
 }
