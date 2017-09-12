@@ -329,18 +329,12 @@ const closeHistoryKey = new PluginKey("closeHistory")
 
 // :: (?Object) → Plugin
 // Returns a plugin that enables the undo history for an editor. The
-// plugin will track undo and redo stacks, which the
-// [`undo`](#history.undo) and [`redo`](#history.redo) commands can
-// use to move the state back and forward.
+// plugin will track undo and redo stacks, which can be used with the
+// [`undo`](#history.undo) and [`redo`](#history.redo) commands.
 //
-// Note that this implementation doesn't implement history by simply
-// resetting back to some previous state. In order to support
-// collaborative editing (as well as some other use cases), it
-// selectively rolls back some transactions, but not other (for
-// example, not the changes made by other users). You can set an
-// `"addToHistory"` [metadata property](#state.Transaction.setMeta)
-// of `false` on a transaction to prevent it from being rolled back by
-// undo.
+// You can set an `"addToHistory"` [metadata
+// property](#state.Transaction.setMeta) of `false` on a transaction
+// to prevent it from being rolled back by undo.
 //
 //   config::-
 //   Supports the following configuration options:
