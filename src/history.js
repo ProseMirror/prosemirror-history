@@ -85,9 +85,9 @@ class Branch {
 
   // : (Transform, Selection, Object)
   // Create a new branch with the given transform added.
-  addTransform(transform, selection, histOptions) {
+  addTransform(transform, selection, histOptions, preserveItems) {
     let newItems = [], eventCount = this.eventCount + (selection ? 1 : 0)
-    let oldItems = this.items, lastItem = !histOptions.preserveItems && oldItems.length ? oldItems.get(oldItems.length - 1) : null
+    let oldItems = this.items, lastItem = !preserveItems && oldItems.length ? oldItems.get(oldItems.length - 1) : null
 
     for (let i = 0; i < transform.steps.length; i++) {
       let step = transform.steps[i].invert(transform.docs[i])
@@ -99,7 +99,7 @@ class Branch {
       }
       newItems.push(item)
       selection = null
-      if (!histOptions.preserveItems) lastItem = item
+      if (!preserveItems) lastItem = item
     }
     let overflow = eventCount - histOptions.depth
     if (overflow > DEPTH_OVERFLOW) {
@@ -249,9 +249,9 @@ export class HistoryState {
 
 const DEPTH_OVERFLOW = 20
 
-// : (EditorState, Transform, Selection, Object)
+// : (EditorState, EditorState, Selection, Object)
 // Record a transformation in undo history.
-function applyTransaction(history, selection, tr, options) {
+function applyTransaction(history, state, tr, options) {
   let newState = tr.getMeta(historyKey), rebased
   if (newState) return newState
 
@@ -264,7 +264,8 @@ function applyTransaction(history, selection, tr, options) {
     // Group transforms that occur in quick succession into one event.
     let newGroup = history.prevTime < (tr.time || 0) - options.newGroupDelay ||
         !appended && !isAdjacentToLastStep(tr, history.prevMap, history.done)
-    return new HistoryState(history.done.addTransform(tr, newGroup ? selection.getBookmark() : null, options),
+    return new HistoryState(history.done.addTransform(tr, newGroup ? state.selection.getBookmark() : null,
+                                                      options, mustPreserveItems(state)),
                             Branch.empty, tr.mapping.maps[tr.steps.length - 1], tr.time)
   } else if (rebased = tr.getMeta("rebased")) {
     // Used by the collab module to tell the history that some of its
@@ -304,16 +305,34 @@ function isAdjacentToLastStep(transform, prevMap, done) {
 // shift the event onto the other branch. Returns true when an event could
 // be shifted.
 function histTransaction(history, state, dispatch, redo) {
-  let histOptions = historyKey.get(state).spec.config
-  let pop = (redo ? history.undone : history.done).popEvent(state, histOptions.preserveItems)
+  let preserveItems = mustPreserveItems(state), histOptions = historyKey.get(state).spec.config
+  let pop = (redo ? history.undone : history.done).popEvent(state, preserveItems)
   if (!pop) return
 
-  let selectionBefore = state.selection
   let selection = pop.selection.resolve(pop.transform.doc)
-  let added = (redo ? history.done : history.undone).addTransform(pop.transform, selectionBefore.getBookmark(), histOptions)
+  let added = (redo ? history.done : history.undone).addTransform(pop.transform, state.selection.getBookmark(),
+                                                                  histOptions, preserveItems)
 
   let newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, null, 0)
   dispatch(pop.transform.setSelection(selection).setMeta(historyKey, newHist).scrollIntoView())
+}
+
+let cachedPreserveItems = false, cachedPreserveItemsPlugins = null
+// Check whether any plugin in the given state has a
+// `historyPreserveItems` property in its spec, in which case we must
+// preserve steps exactly as they came in, so that they can be
+// rebased.
+function mustPreserveItems(state) {
+  let plugins = state.plugins
+  if (cachedPreserveItemsPlugins != plugins) {
+    cachedPreserveItems = false
+    cachedPreserveItemsPlugins = plugins
+    for (let i = 0; i < plugins.length; i++) if (plugins[i].spec.historyPreserveItems) {
+      cachedPreserveItems = true
+      break
+    }
+  }
+  return cachedPreserveItems
 }
 
 // :: (Transaction) → Transaction
@@ -347,15 +366,8 @@ const closeHistoryKey = new PluginKey("closeHistory")
 //     The delay between changes after which a new group should be
 //     started. Defaults to 500 (milliseconds). Note that when changes
 //     aren't adjacent, a new group is always started.
-//
-//     preserveItems:: ?bool
-//     Whether to preserve the steps exactly as they came in. **Must**
-//     be true when using the history together with the collaborative
-//     editing plugin, to allow syncing the history when concurrent
-//     changes come in. Defaults to false.
 export function history(config) {
   config = {depth: config && config.depth || 100,
-            preserveItems: !!(config && config.preserveItems),
             newGroupDelay: config && config.newGroupDelay || 500}
   return new Plugin({
     key: historyKey,
@@ -365,7 +377,7 @@ export function history(config) {
         return new HistoryState(Branch.empty, Branch.empty, null, 0)
       },
       apply(tr, hist, state) {
-        return applyTransaction(hist, state.selection, tr, config)
+        return applyTransaction(hist, state, tr, config)
       }
     },
 

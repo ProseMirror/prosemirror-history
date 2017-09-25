@@ -1,5 +1,6 @@
 const {eq, schema, doc, p} = require("prosemirror-test-builder")
 const {TestState} = require("prosemirror-state/test/state")
+const {Plugin} = require("prosemirror-state")
 const ist = require("ist")
 
 const {history, closeHistory, undo, redo, undoDepth} = require("../dist/history")
@@ -7,7 +8,9 @@ const {history, closeHistory, undo, redo, undoDepth} = require("../dist/history"
 let plugin = history()
 
 function mkState(doc, config) {
-  return new TestState({doc, schema, plugins: [config ? history(config) : plugin]})
+  let plugins = [config ? history(config) : plugin]
+  if (config && config.preserveItems) plugins.push(new Plugin({historyPreserveItems: true}))
+  return new TestState({doc, schema, plugins})
 }
 
 function compress(state) {
