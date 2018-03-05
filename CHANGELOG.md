@@ -1,3 +1,9 @@
+## 1.0.1 (2018-03-05)
+
+### Bug fixes
+
+Fix crash that could occur (in specific circumstance) when redoing.
+
 ## 0.24.0 (2017-09-25)
 
 ### New features

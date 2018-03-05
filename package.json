@@ -1,6 +1,6 @@
 {
   "name": "prosemirror-history",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Undo history for ProseMirror",
   "main": "dist/history.js",
   "license": "MIT",
