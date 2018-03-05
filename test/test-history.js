@@ -85,6 +85,15 @@ describe("history", () => {
     ist(state.doc, doc(p("oops!")), eq)
   })
 
+  it("doesn't get confused by an undo not adding any redo item", () => {
+    let state = mkState()
+    state = state.apply(state.tr.insertText("foo"))
+    state = state.apply(state.tr.replaceWith(1, 4, schema.text("bar")).setMeta("addToHistory", false))
+    state = command(state, undo)
+    state = command(state, redo)
+    ist(state.doc, doc(p("bar")), eq)
+  })
+
   function unsyncedComplex(state, doCompress) {
     state = type(state, "hello")
     state = state.apply(closeHistory(state.tr))

@@ -86,7 +86,7 @@ class Branch {
   // : (Transform, Selection, Object)
   // Create a new branch with the given transform added.
   addTransform(transform, selection, histOptions, preserveItems) {
-    let newItems = [], eventCount = this.eventCount + (selection ? 1 : 0)
+    let newItems = [], eventCount = this.eventCount
     let oldItems = this.items, lastItem = !preserveItems && oldItems.length ? oldItems.get(oldItems.length - 1) : null
 
     for (let i = 0; i < transform.steps.length; i++) {
@@ -98,7 +98,10 @@ class Branch {
         else oldItems = oldItems.slice(0, oldItems.length - 1)
       }
       newItems.push(item)
-      selection = null
+      if (selection) {
+        eventCount++
+        selection = null
+      }
       if (!preserveItems) lastItem = item
     }
     let overflow = eventCount - histOptions.depth
