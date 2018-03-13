@@ -142,6 +142,7 @@ class Branch {
     let mapping = rebasedTransform.mapping
     let newUntil = rebasedTransform.steps.length
     let eventCount = this.eventCount
+    this.items.forEach(item => { if (item.selection) eventCount-- }, this.items.length - rebasedCount)
 
     let iRebased = rebasedCount
     this.items.forEach(item => {
@@ -152,9 +153,9 @@ class Branch {
       if (item.step) {
         let step = rebasedTransform.steps[pos].invert(rebasedTransform.docs[pos])
         let selection = item.selection && item.selection.map(mapping.slice(iRebased, pos))
+        if (selection) eventCount++
         rebasedItems.push(new Item(map, step, selection))
       } else {
-        if (item.selection) eventCount--
         rebasedItems.push(new Item(map))
       }
     }, start)
@@ -164,6 +165,7 @@ class Branch {
       newMaps.push(new Item(mapping.maps[i]))
     let items = this.items.slice(0, start).append(newMaps).append(rebasedItems)
     let branch = new Branch(items, eventCount)
+
     if (branch.emptyItemCount() > max_empty_items)
       branch = branch.compress(this.items.length - rebasedItems.length)
     return branch
