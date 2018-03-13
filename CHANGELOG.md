@@ -1,3 +1,9 @@
+## 1.0.2 (2018-03-13)
+
+### Bug fixes
+
+Fix a bug that could corrupt the history when rebasing changes because of collaborative editing.
+
 ## 1.0.1 (2018-03-05)
 
 ### Bug fixes
