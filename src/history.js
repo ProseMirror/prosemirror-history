@@ -142,7 +142,7 @@ class Branch {
     let mapping = rebasedTransform.mapping
     let newUntil = rebasedTransform.steps.length
     let eventCount = this.eventCount
-    this.items.forEach(item => { if (item.selection) eventCount-- }, this.items.length - rebasedCount)
+    this.items.forEach(item => { if (item.selection) eventCount-- }, start)
 
     let iRebased = rebasedCount
     this.items.forEach(item => {
