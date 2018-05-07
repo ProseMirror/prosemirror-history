@@ -254,7 +254,7 @@ export class HistoryState {
 
 const DEPTH_OVERFLOW = 20
 
-// : (EditorState, EditorState, Selection, Object)
+// : (HistoryState, EditorState, Transaction, Object)
 // Record a transformation in undo history.
 function applyTransaction(history, state, tr, options) {
   let newState = tr.getMeta(historyKey), rebased
