@@ -27,7 +27,7 @@ class Branch {
     this.eventCount = eventCount
   }
 
-  // : (Node, bool, ?Item) → ?{transform: Transform, selection: Object}
+  // : (Node, bool, ?Item) → ?{transform: Transform, selection: Object, remaining: Branch | null}
   // Pop the latest event off the branch's history and apply it
   // to a document transform.
   popEvent(state, preserveItems) {
