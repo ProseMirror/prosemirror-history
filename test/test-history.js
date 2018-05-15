@@ -272,4 +272,21 @@ describe("history", () => {
       ist(undoDepth(state), (i - 2) % 21 + 2)
     }
   })
+
+  it("supports transactions with multiple steps", () => {
+    let state = mkState()
+    state = state.apply(state.tr.insertText("a").insertText("b"))
+    state = state.apply(state.tr.insertText("c", 1))
+    ist(state.doc, doc(p("cab")), eq)
+    state = command(state, undo)
+    ist(state.doc, doc(p("ab")), eq)
+    state = command(state, undo)
+    ist(state.doc, doc(p()), eq)
+    state = command(state, redo)
+    ist(state.doc, doc(p("ab")), eq)
+    state = command(state, redo)
+    ist(state.doc, doc(p("cab")), eq)
+    state = command(state, undo)
+    ist(state.doc, doc(p("ab")), eq)
+  })
 })
