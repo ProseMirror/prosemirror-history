@@ -2,7 +2,7 @@ const {eq, schema, doc, p} = require("prosemirror-test-builder")
 const {EditorState, Plugin, TextSelection} = require("prosemirror-state")
 const ist = require("ist")
 
-const {history, closeHistory, undo, redo, undoDepth} = require("../dist/history")
+const {history, closeHistory, undo, redo, undoDepth, redoDepth} = require("../dist/history")
 
 let plugin = history()
 
@@ -238,5 +238,21 @@ describe("history", () => {
     state = command(state, undo)
     state = command(state, undo)
     ist(state.doc, doc(p()), eq)
+  })
+
+  it("supports querying for the undo and redo depth", () => {
+    let state = mkState()
+    state = type(state, "a")
+    ist(undoDepth(state), 1)
+    ist(redoDepth(state), 0)
+    state = state.apply(state.tr.insertText("b", 1).setMeta("addToHistory", false))
+    ist(undoDepth(state), 1)
+    ist(redoDepth(state), 0)
+    state = command(state, undo)
+    ist(undoDepth(state), 0)
+    ist(redoDepth(state), 1)
+    state = command(state, redo)
+    ist(undoDepth(state), 1)
+    ist(redoDepth(state), 0)
   })
 })
