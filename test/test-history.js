@@ -263,4 +263,13 @@ describe("history", () => {
     ist(undo(state), false)
     ist(redo(state), false)
   })
+
+  it("truncates history", () => {
+    let state = mkState(null, {depth: 2})
+    for (let i = 1; i < 40; ++i) {
+      state = type(state, "a")
+      state = state.apply(closeHistory(state.tr))
+      ist(undoDepth(state), (i - 2) % 21 + 2)
+    }
+  })
 })
