@@ -27,7 +27,7 @@ class Branch {
     this.eventCount = eventCount
   }
 
-  // : (Node, bool) → ?{transform: Transform, selection: Object, remaining: Branch | null}
+  // : (EditorState, bool) → ?{transform: Transform, selection: Selection | null, remaining: Branch | null}
   // Pop the latest event off the branch's history and apply it
   // to a document transform.
   popEvent(state, preserveItems) {
@@ -129,7 +129,7 @@ class Branch {
     return new Branch(this.items.append(array.map(map => new Item(map))), this.eventCount)
   }
 
-  // : ([StepMap], Transform, [number])
+  // : (Transform, number)
   // When the collab module receives remote changes, the history has
   // to know about those, so that it can adjust the steps that were
   // rebased on top of the remote changes, and include the position
@@ -306,9 +306,8 @@ function isAdjacentToLastStep(transform, prevMap, done) {
 }
 
 // : (HistoryState, EditorState, (tr: Transaction), bool)
-// Apply the latest event from one branch to the document and optionally
-// shift the event onto the other branch. Returns true when an event could
-// be shifted.
+// Apply the latest event from one branch to the document and shift the event
+// onto the other branch.
 function histTransaction(history, state, dispatch, redo) {
   let preserveItems = mustPreserveItems(state), histOptions = historyKey.get(state).spec.config
   let pop = (redo ? history.undone : history.done).popEvent(state, preserveItems)
