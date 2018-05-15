@@ -255,4 +255,12 @@ describe("history", () => {
     ist(undoDepth(state), 1)
     ist(redoDepth(state), 0)
   })
+
+  it("all functions gracefully handle EditorStates without history", () => {
+    let state = new EditorState()
+    ist(undoDepth(state), 0)
+    ist(redoDepth(state), 0)
+    ist(undo(state), false)
+    ist(redo(state), false)
+  })
 })
