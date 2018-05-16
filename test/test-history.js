@@ -1,5 +1,7 @@
 const {eq, schema, doc, p} = require("prosemirror-test-builder")
+const {Slice, Fragment} = require("prosemirror-model")
 const {EditorState, Plugin, TextSelection} = require("prosemirror-state")
+const {ReplaceStep} = require("prosemirror-transform")
 const ist = require("ist")
 
 const {history, closeHistory, undo, redo, undoDepth, redoDepth} = require("../dist/history")
@@ -288,5 +290,56 @@ describe("history", () => {
     ist(state.doc, doc(p("cab")), eq)
     state = command(state, undo)
     ist(state.doc, doc(p("ab")), eq)
+  })
+
+  it("supports rebasing", () => {
+    // This test simulates a collab editing session where the local editor
+    // receives a step (`right`) that's on top of the parent step (`base`) of
+    // the last local step (`left`).
+
+    // Shared base step
+    let state = mkState()
+    state = type(state, "base")
+    state = state.apply(closeHistory(state.tr))
+    const baseDoc = state.doc
+
+    // Local unconfirmed step
+    //
+    //        - left
+    //       /
+    // base -
+    //       \
+    //        - right
+    let leftStep = new ReplaceStep(1, 1, new Slice(Fragment.from(schema.text("left ")), 0, 0))
+    state = state.apply(state.tr.step(leftStep))
+    ist(state.doc, doc(p("left base")), eq)
+    ist(undoDepth(state), 2)
+    let rightStep = new ReplaceStep(5, 5, new Slice(Fragment.from(schema.text(" right")), 0, 0))
+
+    // Receive remote step and rebase local unconfirmed step
+    //
+    // base --> right --> left'
+    const tr = state.tr
+    tr.step(leftStep.invert(baseDoc))
+    tr.step(rightStep)
+    tr.step(leftStep.map(tr.mapping.slice(1)))
+    tr.mapping.setMirror(0, tr.steps.length - 1)
+    tr.setMeta("addToHistory", false)
+    tr.setMeta("rebased", 1)
+    state = state.apply(tr)
+    ist(state.doc, doc(p("left base right")), eq)
+    ist(undoDepth(state), 2)
+
+    // Undo local unconfirmed step
+    //
+    // base --> right
+    state = command(state, undo)
+    ist(state.doc, doc(p("base right")), eq)
+
+    // Redo local unconfirmed step
+    //
+    // base --> right --> left'
+    state = command(state, redo)
+    ist(state.doc, doc(p("left base right")), eq)
   })
 })
