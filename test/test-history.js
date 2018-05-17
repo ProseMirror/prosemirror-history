@@ -310,19 +310,19 @@ describe("history", () => {
     // base -
     //       \
     //        - right
-    let leftStep = new ReplaceStep(1, 1, new Slice(Fragment.from(schema.text("left ")), 0, 0))
-    state = state.apply(state.tr.step(leftStep))
-    ist(state.doc, doc(p("left base")), eq)
-    ist(undoDepth(state), 2)
     let rightStep = new ReplaceStep(5, 5, new Slice(Fragment.from(schema.text(" right")), 0, 0))
+    state = state.apply(state.tr.step(rightStep))
+    ist(state.doc, doc(p("base right")), eq)
+    ist(undoDepth(state), 2)
+    let leftStep = new ReplaceStep(1, 1, new Slice(Fragment.from(schema.text("left ")), 0, 0))
 
     // Receive remote step and rebase local unconfirmed step
     //
-    // base --> right --> left'
+    // base --> left --> right'
     const tr = state.tr
-    tr.step(leftStep.invert(baseDoc))
-    tr.step(rightStep)
-    tr.step(leftStep.map(tr.mapping.slice(1)))
+    tr.step(rightStep.invert(baseDoc))
+    tr.step(leftStep)
+    tr.step(rightStep.map(tr.mapping.slice(1)))
     tr.mapping.setMirror(0, tr.steps.length - 1)
     tr.setMeta("addToHistory", false)
     tr.setMeta("rebased", 1)
@@ -332,13 +332,13 @@ describe("history", () => {
 
     // Undo local unconfirmed step
     //
-    // base --> right
+    // base --> left
     state = command(state, undo)
-    ist(state.doc, doc(p("base right")), eq)
+    ist(state.doc, doc(p("left base")), eq)
 
     // Redo local unconfirmed step
     //
-    // base --> right --> left'
+    // base --> left --> right'
     state = command(state, redo)
     ist(state.doc, doc(p("left base right")), eq)
   })
