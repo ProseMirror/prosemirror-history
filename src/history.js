@@ -27,7 +27,7 @@ class Branch {
     this.eventCount = eventCount
   }
 
-  // : (EditorState, bool) → ?{transform: Transform, selection: Selection | null, remaining: Branch | null}
+  // : (EditorState, bool) → ?{transform: Transform, selection: ?SelectionBookmark, remaining: Branch}
   // Pop the latest event off the branch's history and apply it
   // to a document transform.
   popEvent(state, preserveItems) {
@@ -83,7 +83,7 @@ class Branch {
     return {remaining, transform, selection}
   }
 
-  // : (Transform, Selection, Object)
+  // : (Transform, ?SelectionBookmark, Object) → Branch
   // Create a new branch with the given transform added.
   addTransform(transform, selection, histOptions, preserveItems) {
     let newItems = [], eventCount = this.eventCount
