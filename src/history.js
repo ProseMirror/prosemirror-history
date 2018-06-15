@@ -113,15 +113,13 @@ class Branch {
   }
 
   remapping(from, to) {
-    let maps = [], mirrors = []
+    let maps = new Mapping
     this.items.forEach((item, i) => {
-      if (item.mirrorOffset != null) {
-        let mirrorPos = i - item.mirrorOffset
-        if (mirrorPos >= from) mirrors.push(maps.length - item.mirrorOffset, maps.length)
-      }
-      maps.push(item.map)
+      let mirrorPos = item.mirrorOffset != null && i - item.mirrorOffset >= from
+          ? mirrorPos = maps.maps.length - item.mirrorOffset : null
+      maps.appendMap(item.map, mirrorPos)
     }, from, to)
-    return new Mapping(maps, mirrors)
+    return maps
   }
 
   addMaps(array) {
