@@ -1,6 +1,6 @@
-const {eq, schema, doc, p} = require("prosemirror-test-builder")
+const {eq, schema, doc, p, strong} = require("prosemirror-test-builder")
 const {Slice, Fragment} = require("prosemirror-model")
-const {EditorState, Plugin, TextSelection} = require("prosemirror-state")
+const {EditorState, Plugin, TextSelection, AllSelection} = require("prosemirror-state")
 const {ReplaceStep} = require("prosemirror-transform")
 const ist = require("ist")
 
@@ -341,5 +341,31 @@ describe("history", () => {
     // base --> left --> right'
     state = command(state, redo)
     ist(state.doc, doc(p("left base right")), eq)
+  })
+
+  it("supports appending transactions", () => {
+    let state = mkState()
+    state = state.apply(state.tr.insertText("abc"))
+
+    state.plugins.push(new Plugin({
+      appendTransaction: (trs, oldState, { tr, doc }) => 
+        tr.insertText("+", new AllSelection(doc).to)
+      }))
+
+    state = state.apply(closeHistory(state.tr.insertText("abc")))
+    ist(state.doc, doc(p("abcabc"), p("+")), eq)
+    
+    // Undo remove previous "+" then adds one again in appendTransaction
+    // after the undo transaction
+    state = command(state, undo)
+    ist(state.doc, doc(p("abc"), p("+")), eq)
+
+    // Re-add the previous "+" and add another one after the redo transaction
+    state = command(state, redo)
+    ist(state.doc, doc(p("abcabc"), p("+"), p("+"), p("+")), eq)
+
+    // Make sure nothing is left on redo branch
+    state = command(state, redo)
+    ist(state.doc, doc(p("abcabc"), p("+"), p("+"), p("+")), eq)
   })
 })

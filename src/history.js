@@ -260,16 +260,17 @@ function applyTransaction(history, state, tr, options) {
 
   if (tr.getMeta(closeHistoryKey)) history = new HistoryState(history.done, history.undone, null, 0)
 
-  let appended = tr.getMeta("appendedTransaction")
+  let rootTr = tr.getMeta("appendedTransaction")
   if (tr.steps.length == 0) {
     return history
-  } else if ((appended || tr).getMeta("addToHistory") !== false) {
+  } else if (tr.getMeta("addToHistory") !== false) {
     // Group transforms that occur in quick succession into one event.
+    let historyRoot = rootTr && !!rootTr.getMeta(historyKey);
     let newGroup = history.prevTime < (tr.time || 0) - options.newGroupDelay ||
-        !appended && !isAdjacentToLastStep(tr, history.prevMap, history.done)
+        !rootTr && !isAdjacentToLastStep(tr, history.prevMap, history.done)
     return new HistoryState(history.done.addTransform(tr, newGroup ? state.selection.getBookmark() : null,
                                                       options, mustPreserveItems(state)),
-                            Branch.empty, tr.mapping.maps[tr.steps.length - 1], tr.time)
+                                                      historyRoot ? history.undone : Branch.empty, tr.mapping.maps[tr.steps.length - 1], tr.time)
   } else if (rebased = tr.getMeta("rebased")) {
     // Used by the collab module to tell the history that some of its
     // content has been rebased.
