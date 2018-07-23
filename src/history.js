@@ -255,15 +255,22 @@ const DEPTH_OVERFLOW = 20
 // : (HistoryState, EditorState, Transaction, Object)
 // Record a transformation in undo history.
 function applyTransaction(history, state, tr, options) {
-  let newState = tr.getMeta(historyKey), rebased
-  if (newState) return newState
+  let historyTr = tr.getMeta(historyKey), rebased
+  if (historyTr) return historyTr.historyState
 
   if (tr.getMeta(closeHistoryKey)) history = new HistoryState(history.done, history.undone, null, 0)
 
   let appended = tr.getMeta("appendedTransaction")
   if (tr.steps.length == 0) {
     return history
-  } else if ((appended || tr).getMeta("addToHistory") !== false) {
+  } else if (appended && appended.getMeta(historyKey)) {
+    if (appended.getMeta(historyKey).redo)
+      return new HistoryState(history.done.addTransform(tr, null, options, mustPreserveItems(state)),
+                              history.undone, tr.mapping.maps[tr.steps.length - 1], history.prevTime)
+    else
+      return new HistoryState(history.done, history.undone.addTransform(tr, null, options, mustPreserveItems(state)),
+                              null, history.prevTime)
+  } else if (tr.getMeta("addToHistory") !== false && !(appended && appended.getMeta("addToHistory") === false)) {
     // Group transforms that occur in quick succession into one event.
     let newGroup = history.prevTime < (tr.time || 0) - options.newGroupDelay ||
         !appended && !isAdjacentToLastStep(tr, history.prevMap, history.done)
@@ -316,7 +323,7 @@ function histTransaction(history, state, dispatch, redo) {
                                                                   histOptions, preserveItems)
 
   let newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, null, 0)
-  dispatch(pop.transform.setSelection(selection).setMeta(historyKey, newHist).scrollIntoView())
+  dispatch(pop.transform.setSelection(selection).setMeta(historyKey, {redo, historyState: newHist}).scrollIntoView())
 }
 
 let cachedPreserveItems = false, cachedPreserveItemsPlugins = null

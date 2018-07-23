@@ -11,7 +11,7 @@ let plugin = history()
 function mkState(doc, config) {
   let plugins = [config ? history(config) : plugin]
   if (config && config.preserveItems) plugins.push(new Plugin({historyPreserveItems: true}))
-  return EditorState.create({schema, plugins, doc})
+  return EditorState.create({schema, plugins: plugins.concat(config && config.plugins || []), doc})
 }
 
 function type(state, text) {
@@ -290,6 +290,37 @@ describe("history", () => {
     ist(state.doc, doc(p("cab")), eq)
     state = command(state, undo)
     ist(state.doc, doc(p("ab")), eq)
+  })
+
+  it("combines appended transactions in the event started by the base transaction", () => {
+    let state = mkState(doc(p("x")), {plugins: [new Plugin({
+      appendTransaction: (_trs, _old, state) => {
+        if (state.doc.content.size == 4) return state.tr.insert(1, schema.text("A"))
+      }
+    })]})
+    state = state.apply(state.tr.insert(2, schema.text("I")))
+    ist(state.doc, doc(p("AxI")), eq)
+    ist(undoDepth(state), 1)
+    state = command(state, undo)
+    ist(state.doc, doc(p("x")), eq)
+  })
+
+  it("includes transactions appended to undo in the redo history", () => {
+    let step = 0
+    let state = mkState(doc(p("x")), {plugins: [new Plugin({
+      appendTransaction: (trs, _old, state) => {
+        let add = trs[0].getMeta("add")
+        if (add) return state.tr.insert(1, schema.text(add))
+      }
+    })]})
+    state = state.apply(state.tr.insert(2, schema.text("I")).setMeta("add", "A"))
+    ist(state.doc, doc(p("AxI")), eq)
+    undo(state, tr => state = state.apply(tr.setMeta("add", "B")))
+    ist(state.doc, doc(p("Bx")), eq)
+    redo(state, tr => state = state.apply(tr.setMeta("add", "C")))
+    ist(state.doc, doc(p("CAxI")), eq)
+    state = command(state, undo)
+    ist(state.doc, doc(p("Bx")), eq)
   })
 
   it("supports rebasing", () => {
