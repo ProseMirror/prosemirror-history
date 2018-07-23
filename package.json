@@ -16,7 +16,7 @@
     "url": "git://github.com/prosemirror/prosemirror-history.git"
   },
   "dependencies": {
-    "prosemirror-state": "^1.0.0",
+    "prosemirror-state": "^1.2.2",
     "prosemirror-transform": "^1.0.0",
     "rope-sequence": "^1.2.0"
   },
