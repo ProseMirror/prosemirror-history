@@ -306,7 +306,6 @@ describe("history", () => {
   })
 
   it("includes transactions appended to undo in the redo history", () => {
-    let step = 0
     let state = mkState(doc(p("x")), {plugins: [new Plugin({
       appendTransaction: (trs, _old, state) => {
         let add = trs[0].getMeta("add")
