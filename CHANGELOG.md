@@ -1,3 +1,11 @@
+## 1.0.3 (2018-10-08)
+
+### Bug fixes
+
+Appending a transaction to an undo transaction will no longer immediately clear the redo history.
+
+When handling appended transactions, the history will keep the last step in the original transaction, not the one from the appended transaction, for testing whether a subsequent transaction is adjacent to the previous one.
+
 ## 1.0.2 (2018-03-13)
 
 ### Bug fixes
