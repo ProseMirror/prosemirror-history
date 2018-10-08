@@ -242,10 +242,10 @@ class Item {
 // state. Will be stored in the plugin state when the history plugin
 // is active.
 export class HistoryState {
-  constructor(done, undone, prevMap, prevTime) {
+  constructor(done, undone, prevRanges, prevTime) {
     this.done = done
     this.undone = undone
-    this.prevMap = prevMap
+    this.prevRanges = prevRanges
     this.prevTime = prevTime
   }
 }
@@ -261,53 +261,63 @@ function applyTransaction(history, state, tr, options) {
   if (tr.getMeta(closeHistoryKey)) history = new HistoryState(history.done, history.undone, null, 0)
 
   let appended = tr.getMeta("appendedTransaction")
+
   if (tr.steps.length == 0) {
     return history
   } else if (appended && appended.getMeta(historyKey)) {
     if (appended.getMeta(historyKey).redo)
       return new HistoryState(history.done.addTransform(tr, null, options, mustPreserveItems(state)),
-                              history.undone, tr.mapping.maps[tr.steps.length - 1], history.prevTime)
+                              history.undone, rangesFor(tr.mapping.maps[tr.steps.length - 1]), history.prevTime)
     else
       return new HistoryState(history.done, history.undone.addTransform(tr, null, options, mustPreserveItems(state)),
                               null, history.prevTime)
   } else if (tr.getMeta("addToHistory") !== false && !(appended && appended.getMeta("addToHistory") === false)) {
     // Group transforms that occur in quick succession into one event.
     let newGroup = history.prevTime < (tr.time || 0) - options.newGroupDelay ||
-        !appended && !isAdjacentToLastStep(tr, history.prevMap, history.done)
+        !appended && !isAdjacentTo(tr, history.prevRanges)
+    let prevRanges = appended ? mapRanges(history.prevRanges, tr.mapping) : rangesFor(tr.mapping.maps[tr.steps.length - 1])
     return new HistoryState(history.done.addTransform(tr, newGroup ? state.selection.getBookmark() : null,
                                                       options, mustPreserveItems(state)),
-                            Branch.empty, tr.mapping.maps[tr.steps.length - 1], tr.time)
+                            Branch.empty, prevRanges, tr.time)
   } else if (rebased = tr.getMeta("rebased")) {
     // Used by the collab module to tell the history that some of its
     // content has been rebased.
     return new HistoryState(history.done.rebased(tr, rebased),
                             history.undone.rebased(tr, rebased),
-                            history.prevMap && tr.mapping.maps[tr.steps.length - 1], history.prevTime)
+                            mapRanges(history.prevRanges, tr.mapping), history.prevTime)
   } else {
     return new HistoryState(history.done.addMaps(tr.mapping.maps),
                             history.undone.addMaps(tr.mapping.maps),
-                            history.prevMap, history.prevTime)
+                            mapRanges(history.prevRanges, tr.mapping), history.prevTime)
   }
 }
 
-function isAdjacentToLastStep(transform, prevMap, done) {
-  if (!prevMap) return false
-  let firstMap = transform.mapping.maps[0], adjacent = false
-  if (!firstMap) return true
-  firstMap.forEach((start, end) => {
-    done.items.forEach(item => {
-      if (item.step) {
-        prevMap.forEach((_start, _end, rStart, rEnd) => {
-          if (start <= rEnd && end >= rStart) adjacent = true
-        })
-        return false
-      } else {
-        start = item.map.invert().map(start, -1)
-        end = item.map.invert().map(end, 1)
-      }
-    }, done.items.length, 0)
+function isAdjacentTo(transform, prevRanges) {
+  if (!prevRanges) return false
+  if (!transform.docChanged) return true
+  let adjacent = false
+  transform.mapping.maps[0].forEach((start, end) => {
+    for (let i = 0; i < prevRanges.length; i += 2)
+      if (start <= prevRanges[i + 1] && end >= prevRanges[i])
+        adjacent = true
   })
   return adjacent
+}
+
+function rangesFor(map) {
+  let result = []
+  map.forEach((_from, _to, from, to) => result.push(from, to))
+  return result
+}
+
+function mapRanges(ranges, mapping) {
+  if (!ranges) return null
+  let result = []
+  for (let i = 0; i < ranges.length; i += 2) {
+    let from = mapping.map(ranges[i], 1), to = mapping.map(ranges[i + 1], -1)
+    if (from <= to) result.push(from, to)
+  }
+  return result
 }
 
 // : (HistoryState, EditorState, (tr: Transaction), bool)

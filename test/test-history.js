@@ -322,6 +322,19 @@ describe("history", () => {
     ist(state.doc, doc(p("Bx")), eq)
   })
 
+  it("doesn't close the history on appended transactions", () => {
+    let state = mkState(doc(p("x")), {plugins: [new Plugin({
+      appendTransaction: (trs, _old, state) => {
+        let add = trs[0].getMeta("add")
+        if (add) return state.tr.insert(1, schema.text(add))
+      }
+    })]})
+    state = state.apply(state.tr.insert(2, schema.text("R")).setMeta("add", "A"))
+    state = state.apply(state.tr.insert(3, schema.text("M")))
+    state = command(state, undo)
+    ist(state.doc, doc(p("x")), eq)
+  })
+
   it("supports rebasing", () => {
     // This test simulates a collab editing session where the local editor
     // receives a step (`right`) that's on top of the parent step (`base`) of
