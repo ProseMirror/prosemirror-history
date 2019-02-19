@@ -1,3 +1,9 @@
+## 1.0.4 (2019-02-19)
+
+### Bug fixes
+
+Fix a bug that corrupted selection data in the history when applying remote steps in some cases.
+
 ## 1.0.3 (2018-10-08)
 
 ### Bug fixes
