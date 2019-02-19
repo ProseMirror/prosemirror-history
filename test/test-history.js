@@ -385,4 +385,15 @@ describe("history", () => {
     state = command(state, redo)
     ist(state.doc, doc(p("left base right")), eq)
   })
+
+  it("properly maps selection when rebasing", () => {
+    let state = mkState(doc(p("123456789ABCD")))
+    state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, 6, 13)))
+    state = state.apply(state.tr.delete(6, 13))
+    let rebase = state.tr.insert(6, schema.text("6789ABC")).insert(14, schema.text("E")).delete(6, 13)
+        .setMeta("rebased", 1).setMeta("addToHistory", false)
+    rebase.mapping.setMirror(0, 2)
+    state = state.apply(rebase)
+    state = command(state, undo)
+  })
 })

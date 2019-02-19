@@ -150,7 +150,7 @@ class Branch {
       let map = mapping.maps[pos]
       if (item.step) {
         let step = rebasedTransform.steps[pos].invert(rebasedTransform.docs[pos])
-        let selection = item.selection && item.selection.map(mapping.slice(iRebased, pos))
+        let selection = item.selection && item.selection.map(mapping.slice(iRebased + 1, pos))
         if (selection) eventCount++
         rebasedItems.push(new Item(map, step, selection))
       } else {
