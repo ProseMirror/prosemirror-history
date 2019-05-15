@@ -224,9 +224,16 @@ function cutOffEvents(items, n) {
 
 class Item {
   constructor(map, step, selection, mirrorOffset) {
+    // The (forward) step map for this item.
     this.map = map
+    // The inverted step
     this.step = step
+    // If this is non-null, this item is the start of a group, and
+    // this selection is the starting selection for the group (the one
+    // that was active before the first step was applied)
     this.selection = selection
+    // If this item is the inverse of a previous mapping on the stack,
+    // this points at the inverse's offset
     this.mirrorOffset = mirrorOffset
   }
 
