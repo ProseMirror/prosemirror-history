@@ -27,10 +27,10 @@ class Branch {
     this.eventCount = eventCount
   }
 
-  // : (EditorState, bool) → ?{transform: Transform, selection: ?SelectionBookmark, remaining: Branch}
+  // : (EditorState, bool, string) → ?{transaction: Transaction, selection: ?SelectionBookmark, remaining: Branch}
   // Pop the latest event off the branch's history and apply it
   // to a document transform.
-  popEvent(state, preserveItems) {
+  popEvent(state, preserveItems, traceEvent) {
     if (this.eventCount == 0) return null
 
     let end = this.items.length
@@ -44,7 +44,8 @@ class Branch {
       remap = this.remapping(end, this.items.length)
       mapFrom = remap.maps.length
     }
-    let transform = state.tr
+    let transaction = state.tr
+    let trace = null
     let selection, remaining
     let addAfter = [], addBefore = []
 
@@ -59,18 +60,25 @@ class Branch {
         return
       }
 
+      let startLen = transaction.steps.length
       if (remap) {
         addBefore.push(new Item(item.map))
         let step = item.step.map(remap.slice(mapFrom)), map
 
-        if (step && transform.maybeStep(step).doc) {
-          map = transform.mapping.maps[transform.mapping.maps.length - 1]
+        if (step && transaction.maybeStep(step).doc) {
+          map = transaction.mapping.maps[transaction.mapping.maps.length - 1]
           addAfter.push(new Item(map, null, null, addAfter.length + addBefore.length))
         }
         mapFrom--
         if (map) remap.appendMap(map, mapFrom)
       } else {
-        transform.maybeStep(item.step)
+        transaction.maybeStep(item.step)
+      }
+      if (transaction.steps.length > startLen) {
+        for (let j = 0; j < item.tracers.length; j++) {
+          if (!trace) trace = []
+          trace.push(new Tracer(transaction.steps.length - 1, item.tracers[j].tag, item.tracers[j].value, traceEvent))
+        }
       }
 
       if (item.selection) {
@@ -80,18 +88,23 @@ class Branch {
       }
     }, this.items.length, 0)
 
-    return {remaining, transform, selection}
+    if (trace) transaction.setMeta(tracers, trace)
+
+    return {remaining, transaction, selection}
   }
 
-  // : (Transform, ?SelectionBookmark, Object) → Branch
-  // Create a new branch with the given transform added.
-  addTransform(transform, selection, histOptions, preserveItems) {
+  // : (Transaction, ?SelectionBookmark, Object) → Branch
+  // Create a new branch with the given transaction added.
+  addTransaction(transaction, selection, histOptions, preserveItems) {
     let newItems = [], eventCount = this.eventCount
     let oldItems = this.items, lastItem = !preserveItems && oldItems.length ? oldItems.get(oldItems.length - 1) : null
+    let trTracers = transaction.getMeta(tracers) || none
 
-    for (let i = 0; i < transform.steps.length; i++) {
-      let step = transform.steps[i].invert(transform.docs[i])
-      let item = new Item(transform.mapping.maps[i], step, selection), merged
+    for (let i = 0; i < transaction.steps.length; i++) {
+      let step = transaction.steps[i].invert(transaction.docs[i]), trace = none
+      for (let j = 0; j < trTracers.length; j++) if (trTracers[j].index == i)
+        (trace == none ? trace = [] : trace).push(trTracers[j])
+      let item = new Item(transaction.mapping.maps[i], step, selection, null, trace), merged
       if (merged = lastItem && lastItem.merge(item)) {
         item = merged
         if (i) newItems.pop()
@@ -127,18 +140,18 @@ class Branch {
     return new Branch(this.items.append(array.map(map => new Item(map))), this.eventCount)
   }
 
-  // : (Transform, number)
+  // : (Transaction, number)
   // When the collab module receives remote changes, the history has
   // to know about those, so that it can adjust the steps that were
   // rebased on top of the remote changes, and include the position
   // maps for the remote changes in its array of items.
-  rebased(rebasedTransform, rebasedCount) {
+  rebased(rebasedTransaction, rebasedCount) {
     if (!this.eventCount) return this
 
     let rebasedItems = [], start = Math.max(0, this.items.length - rebasedCount)
 
-    let mapping = rebasedTransform.mapping
-    let newUntil = rebasedTransform.steps.length
+    let mapping = rebasedTransaction.mapping
+    let newUntil = rebasedTransaction.steps.length
     let eventCount = this.eventCount
     this.items.forEach(item => { if (item.selection) eventCount-- }, start)
 
@@ -149,10 +162,10 @@ class Branch {
       newUntil = Math.min(newUntil, pos)
       let map = mapping.maps[pos]
       if (item.step) {
-        let step = rebasedTransform.steps[pos].invert(rebasedTransform.docs[pos])
+        let step = rebasedTransaction.steps[pos].invert(rebasedTransaction.docs[pos])
         let selection = item.selection && item.selection.map(mapping.slice(iRebased + 1, pos))
         if (selection) eventCount++
-        rebasedItems.push(new Item(map, step, selection))
+        rebasedItems.push(new Item(map, step, selection, item.tracers))
       } else {
         rebasedItems.push(new Item(map))
       }
@@ -195,7 +208,7 @@ class Branch {
         if (step) {
           let selection = item.selection && item.selection.map(remap.slice(mapFrom))
           if (selection) events++
-          let newItem = new Item(map.invert(), step, selection), merged, last = items.length - 1
+          let newItem = new Item(map.invert(), step, selection, item.tracers), merged, last = items.length - 1
           if (merged = items.length && items[last].merge(newItem))
             items[last] = merged
           else
@@ -222,8 +235,45 @@ function cutOffEvents(items, n) {
   return items.slice(cutPoint)
 }
 
+// ::- A tracer is a value that can be attached to a transaction step
+// (via [`setMeta`](#state.Transaction.setMeta) and the
+// [`tracers`](#history.tracers) key) in order to be able to see when
+// that step is being undone or redone later on.
+export class Tracer {
+  // :: (number, string | PluginKey, *)
+  // Create a tracer for a new step. The index should point at the
+  // offset that step has in the transaction's `steps` array.
+  constructor(index, tag, value = null, event = "do") {
+    // The index of the step that this tracer describes in the
+    // transaction.
+    this.index = index
+    // A string or plugin key that identifies the type of the tracer,
+    // used to identify it and distinguish it from tracers that other
+    // modules might be adding.
+    this.tag = tag
+    // Additional data associated with the tracer.
+    this.value = value
+    // :: union<"do", "undo", "redo">
+    // Indicates whether the transaction applies this step for the
+    // first time (`"do"`), undoes it (`"undo"`) or redoes it
+    // (`"redo"`).
+    this.event = event
+  }
+}
+
+const none = []
+
+// :: PluginKey
+// This is the name of the [transaction metadata
+// property](#state.transaction.setMeta) under which
+// [tracers](#history.Tracer) are stored. When set, it should hold an
+// array of `Tracer` objects. You add tracers by setting this property
+// on a transaction you create, and you track tracers by inspecting
+// this property on applied transactions.
+export const tracers = new PluginKey("tracers")
+
 class Item {
-  constructor(map, step, selection, mirrorOffset) {
+  constructor(map, step, selection, mirrorOffset, tracers = none) {
     // The (forward) step map for this item.
     this.map = map
     // The inverted step
@@ -235,12 +285,14 @@ class Item {
     // If this item is the inverse of a previous mapping on the stack,
     // this points at the inverse's offset
     this.mirrorOffset = mirrorOffset
+    // The tracers associated with this step
+    this.tracers = tracers
   }
 
   merge(other) {
-    if (this.step && other.step && !other.selection) {
+    if (this.step && other.step && !other.selection && this.tracers == other.tracers) {
       let step = other.step.merge(this.step)
-      if (step) return new Item(step.getMap().invert(), step, this.selection)
+      if (step) return new Item(step.getMap().invert(), step, this.selection, this.tracers)
     }
   }
 }
@@ -260,7 +312,7 @@ export class HistoryState {
 const DEPTH_OVERFLOW = 20
 
 // : (HistoryState, EditorState, Transaction, Object)
-// Record a transformation in undo history.
+// Record a transactionation in undo history.
 function applyTransaction(history, state, tr, options) {
   let historyTr = tr.getMeta(historyKey), rebased
   if (historyTr) return historyTr.historyState
@@ -273,18 +325,18 @@ function applyTransaction(history, state, tr, options) {
     return history
   } else if (appended && appended.getMeta(historyKey)) {
     if (appended.getMeta(historyKey).redo)
-      return new HistoryState(history.done.addTransform(tr, null, options, mustPreserveItems(state)),
+      return new HistoryState(history.done.addTransaction(tr, null, options, mustPreserveItems(state)),
                               history.undone, rangesFor(tr.mapping.maps[tr.steps.length - 1]), history.prevTime)
     else
-      return new HistoryState(history.done, history.undone.addTransform(tr, null, options, mustPreserveItems(state)),
+      return new HistoryState(history.done, history.undone.addTransaction(tr, null, options, mustPreserveItems(state)),
                               null, history.prevTime)
   } else if (tr.getMeta("addToHistory") !== false && !(appended && appended.getMeta("addToHistory") === false)) {
-    // Group transforms that occur in quick succession into one event.
+    // Group transactions that occur in quick succession into one event.
     let newGroup = history.prevTime < (tr.time || 0) - options.newGroupDelay ||
         !appended && !isAdjacentTo(tr, history.prevRanges)
     let prevRanges = appended ? mapRanges(history.prevRanges, tr.mapping) : rangesFor(tr.mapping.maps[tr.steps.length - 1])
-    return new HistoryState(history.done.addTransform(tr, newGroup ? state.selection.getBookmark() : null,
-                                                      options, mustPreserveItems(state)),
+    return new HistoryState(history.done.addTransaction(tr, newGroup ? state.selection.getBookmark() : null,
+                                                        options, mustPreserveItems(state)),
                             Branch.empty, prevRanges, tr.time)
   } else if (rebased = tr.getMeta("rebased")) {
     // Used by the collab module to tell the history that some of its
@@ -299,11 +351,11 @@ function applyTransaction(history, state, tr, options) {
   }
 }
 
-function isAdjacentTo(transform, prevRanges) {
+function isAdjacentTo(transaction, prevRanges) {
   if (!prevRanges) return false
-  if (!transform.docChanged) return true
+  if (!transaction.docChanged) return true
   let adjacent = false
-  transform.mapping.maps[0].forEach((start, end) => {
+  transaction.mapping.maps[0].forEach((start, end) => {
     for (let i = 0; i < prevRanges.length; i += 2)
       if (start <= prevRanges[i + 1] && end >= prevRanges[i])
         adjacent = true
@@ -332,15 +384,15 @@ function mapRanges(ranges, mapping) {
 // onto the other branch.
 function histTransaction(history, state, dispatch, redo) {
   let preserveItems = mustPreserveItems(state), histOptions = historyKey.get(state).spec.config
-  let pop = (redo ? history.undone : history.done).popEvent(state, preserveItems)
+  let pop = (redo ? history.undone : history.done).popEvent(state, preserveItems, redo ? "redo" : "undo")
   if (!pop) return
 
-  let selection = pop.selection.resolve(pop.transform.doc)
-  let added = (redo ? history.done : history.undone).addTransform(pop.transform, state.selection.getBookmark(),
-                                                                  histOptions, preserveItems)
+  let selection = pop.selection.resolve(pop.transaction.doc)
+  let added = (redo ? history.done : history.undone).addTransaction(pop.transaction, state.selection.getBookmark(),
+                                                                    histOptions, preserveItems)
 
   let newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, null, 0)
-  dispatch(pop.transform.setSelection(selection).setMeta(historyKey, {redo, historyState: newHist}).scrollIntoView())
+  dispatch(pop.transaction.setSelection(selection).setMeta(historyKey, {redo, historyState: newHist}).scrollIntoView())
 }
 
 let cachedPreserveItems = false, cachedPreserveItemsPlugins = null

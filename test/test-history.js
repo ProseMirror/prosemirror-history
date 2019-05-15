@@ -4,7 +4,7 @@ const {EditorState, Plugin, TextSelection} = require("prosemirror-state")
 const {ReplaceStep} = require("prosemirror-transform")
 const ist = require("ist")
 
-const {history, closeHistory, undo, redo, undoDepth, redoDepth} = require("../dist/history")
+const {history, closeHistory, undo, redo, undoDepth, redoDepth, Tracer, tracers} = require("../dist/history")
 
 let plugin = history()
 
@@ -395,5 +395,48 @@ describe("history", () => {
     rebase.mapping.setMirror(0, 2)
     state = state.apply(rebase)
     state = command(state, undo)
+  })
+
+  it("traces tracers", () => {
+    let state = mkState(doc(p("hello")))
+    state = state.apply(state.tr
+                        .insertText("a", 2, 3)
+                        .insertText("u", 5, 6)
+                        .setMeta(tracers, [new Tracer(1, "myTracer", 22)]))
+    state = state.apply(closeHistory(state.tr))
+    state = state.apply(state.tr.insertText("i", 5, 6))
+    undo(state, tr => {
+      ist(!tr.getMeta(tracers))
+      state = state.apply(tr)
+    })
+    ist(state.doc, doc(p("hallu")), eq)
+    undo(state, tr => {
+      let trace = tr.getMeta(tracers)
+      ist(trace)
+      ist(trace.length, 1)
+      ist(trace[0].index, 0)
+      ist(trace[0].event, "undo")
+      ist(trace[0].tag, "myTracer")
+      state = state.apply(tr)
+    })
+    ist(state.doc, doc(p("hello")), eq)
+    redo(state, tr => {
+      let trace = tr.getMeta(tracers)
+      ist(trace)
+      ist(trace.length, 1)
+      ist(trace[0].index, 1)
+      ist(trace[0].event, "redo")
+      state = state.apply(tr)
+    })
+  })
+
+  it("drops tracers for inapplicable steps", () => {
+    let state = mkState(doc(p("one two three")))
+    state = state.apply(state.tr.insertText("r", 6, 7).setMeta(tracers, [new Tracer(0, "myTracer")]))
+    state = state.apply(state.tr.delete(4, 9).setMeta("addToHistory", false))
+    undo(state, tr => {
+      ist(tr.doc, doc(p("onethree")), eq)
+      ist(!tr.getMeta(tracers))
+    })
   })
 })
