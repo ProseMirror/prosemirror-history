@@ -1,10 +1,10 @@
 const {eq, schema, doc, p} = require("prosemirror-test-builder")
 const {Slice, Fragment} = require("prosemirror-model")
-const {EditorState, Plugin, TextSelection} = require("prosemirror-state")
+const {EditorState, Plugin, TextSelection, Tracer, tracers} = require("prosemirror-state")
 const {ReplaceStep} = require("prosemirror-transform")
 const ist = require("ist")
 
-const {history, closeHistory, undo, redo, undoDepth, redoDepth, Tracer, tracers} = require("../dist/history")
+const {history, closeHistory, undo, redo, undoDepth, redoDepth} = require("../dist/history")
 
 let plugin = history()
 

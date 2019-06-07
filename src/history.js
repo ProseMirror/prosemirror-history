@@ -1,6 +1,6 @@
 import RopeSequence from "rope-sequence"
 import {Mapping} from "prosemirror-transform"
-import {Plugin, PluginKey} from "prosemirror-state"
+import {Plugin, PluginKey, tracers} from "prosemirror-state"
 
 // ProseMirror's history isn't simply a way to roll back to a previous
 // state, because ProseMirror supports applying changes without adding
@@ -77,7 +77,7 @@ class Branch {
       if (transaction.steps.length > startLen) {
         for (let j = 0; j < item.tracers.length; j++) {
           if (!trace) trace = []
-          trace.push(new Tracer(transaction.steps.length - 1, item.tracers[j].tag, item.tracers[j].value, traceEvent))
+          trace.push(item.tracers[j].copy(transaction.steps.length - 1, traceEvent))
         }
       }
 
@@ -235,42 +235,7 @@ function cutOffEvents(items, n) {
   return items.slice(cutPoint)
 }
 
-// ::- A tracer is a value that can be attached to a transaction step
-// (via [`setMeta`](#state.Transaction.setMeta) and the
-// [`tracers`](#history.tracers) key) in order to be able to see when
-// that step is being undone or redone later on.
-export class Tracer {
-  // :: (number, string | PluginKey, *)
-  // Create a tracer for a new step. The index should point at the
-  // offset that step has in the transaction's `steps` array.
-  constructor(index, tag, value = null, event = "do") {
-    // The index of the step that this tracer describes in the
-    // transaction.
-    this.index = index
-    // A string or plugin key that identifies the type of the tracer,
-    // used to identify it and distinguish it from tracers that other
-    // modules might be adding.
-    this.tag = tag
-    // Additional data associated with the tracer.
-    this.value = value
-    // :: union<"do", "undo", "redo">
-    // Indicates whether the transaction applies this step for the
-    // first time (`"do"`), undoes it (`"undo"`) or redoes it
-    // (`"redo"`).
-    this.event = event
-  }
-}
-
 const none = []
-
-// :: PluginKey
-// This is the name of the [transaction metadata
-// property](#state.transaction.setMeta) under which
-// [tracers](#history.Tracer) are stored. When set, it should hold an
-// array of `Tracer` objects. You add tracers by setting this property
-// on a transaction you create, and you track tracers by inspecting
-// this property on applied transactions.
-export const tracers = new PluginKey("tracers")
 
 class Item {
   constructor(map, step, selection, mirrorOffset, tracers = none) {
