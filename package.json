@@ -3,6 +3,7 @@
   "version": "1.0.4",
   "description": "Undo history for ProseMirror",
   "main": "dist/history.js",
+  "module": "src/history.js",
   "license": "MIT",
   "maintainers": [
     {
