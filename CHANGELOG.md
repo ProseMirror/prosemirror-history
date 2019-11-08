@@ -1,3 +1,13 @@
+## 1.1.0 (2019-11-08)
+
+### Bug fixes
+
+Prevents appended transactions from starting a new event group, even if they were created a while after the previous transaction.
+
+### New features
+
+Add a `module` field to package json file.
+
 ## 1.0.4 (2019-02-19)
 
 ### Bug fixes
