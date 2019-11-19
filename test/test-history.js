@@ -4,7 +4,7 @@ const {EditorState, Plugin, TextSelection} = require("prosemirror-state")
 const {ReplaceStep} = require("prosemirror-transform")
 const ist = require("ist")
 
-const {history, closeHistory, undo, redo, undoDepth, redoDepth} = require("../dist/history")
+const {history, closeHistory, undo, redo, undoDepth, redoDepth} = require("..")
 
 let plugin = history()
 
