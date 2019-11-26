@@ -62,7 +62,7 @@ Appended transactions no longer generate undo history events.
 
 ### New features
 
-A new function [`closeHistory`](http://prosemirror.net/docs/ref/version/0.19.0.html#history.closeHistory) can be used to force separation of history events at the start of a given transaction.
+A new function [`closeHistory`](https://prosemirror.net/docs/ref/version/0.19.0.html#history.closeHistory) can be used to force separation of history events at the start of a given transaction.
 
 ## 0.18.0 (2017-02-24)
 
@@ -86,13 +86,13 @@ Fix crash in undo or redo commands when the history is empty.
 
 ### Breaking changes
 
-The [`history`](http://prosemirror.net/docs/ref/version/0.12.0.html#history.history) export is now a function
+The [`history`](https://prosemirror.net/docs/ref/version/0.12.0.html#history.history) export is now a function
 that creates a history plugin, rather than a plugin instance.
 
 ### New features
 
 Add a
-[`newGroupDelay`](http://prosemirror.net/docs/ref/version/0.12.0.html#history.history^config.newGroupDelay) plugin
+[`newGroupDelay`](https://prosemirror.net/docs/ref/version/0.12.0.html#history.history^config.newGroupDelay) plugin
 option. This brings back the behavior where pausing between edits will
 automatically cause the history to put subsequent changes in a new
 undo event.
