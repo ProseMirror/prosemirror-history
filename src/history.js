@@ -116,7 +116,7 @@ class Branch {
     let maps = new Mapping
     this.items.forEach((item, i) => {
       let mirrorPos = item.mirrorOffset != null && i - item.mirrorOffset >= from
-          ? mirrorPos = maps.maps.length - item.mirrorOffset : null
+          ? maps.maps.length - item.mirrorOffset : null
       maps.appendMap(item.map, mirrorPos)
     }, from, to)
     return maps
