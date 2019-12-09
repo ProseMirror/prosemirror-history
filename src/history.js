@@ -280,8 +280,8 @@ function applyTransaction(history, state, tr, options) {
                               null, history.prevTime)
   } else if (tr.getMeta("addToHistory") !== false && !(appended && appended.getMeta("addToHistory") === false)) {
     // Group transforms that occur in quick succession into one event.
-    let newGroup = !appended && (history.prevTime < (tr.time || 0) - options.newGroupDelay ||
-                                 !isAdjacentTo(tr, history.prevRanges))
+    let newGroup = history.prevTime == 0 || !appended && (history.prevTime < (tr.time || 0) - options.newGroupDelay ||
+                                                          !isAdjacentTo(tr, history.prevRanges))
     let prevRanges = appended ? mapRanges(history.prevRanges, tr.mapping) : rangesFor(tr.mapping.maps[tr.steps.length - 1])
     return new HistoryState(history.done.addTransform(tr, newGroup ? state.selection.getBookmark() : null,
                                                       options, mustPreserveItems(state)),
