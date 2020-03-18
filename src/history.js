@@ -262,6 +262,8 @@ const DEPTH_OVERFLOW = 20
 // : (HistoryState, EditorState, Transaction, Object)
 // Record a transformation in undo history.
 function applyTransaction(history, state, tr, options) {
+  if (tr.getMeta(clearHistoryKey)) return new HistoryState(Branch.empty, Branch.empty, null, 0)
+  
   let historyTr = tr.getMeta(historyKey), rebased
   if (historyTr) return historyTr.historyState
 
@@ -369,8 +371,15 @@ export function closeHistory(tr) {
   return tr.setMeta(closeHistoryKey, true)
 }
 
+// :: (Transaction) → Transaction
+// Set a flag on the given transaction that will clear the history state
+export function clearHistory(tr) {
+  return tr.setMeta(clearHistoryKey, true)
+}
+
 const historyKey = new PluginKey("history")
 const closeHistoryKey = new PluginKey("closeHistory")
+const clearHistoryKey = new PluginKey("clearHistory")
 
 // :: (?Object) → Plugin
 // Returns a plugin that enables the undo history for an editor. The

@@ -4,7 +4,7 @@ const {EditorState, Plugin, TextSelection} = require("prosemirror-state")
 const {ReplaceStep} = require("prosemirror-transform")
 const ist = require("ist")
 
-const {history, closeHistory, undo, redo, undoDepth, redoDepth} = require("..")
+const {history, closeHistory, clearHistory, undo, redo, undoDepth, redoDepth} = require("..")
 
 let plugin = history()
 
@@ -395,5 +395,24 @@ describe("history", () => {
     rebase.mapping.setMirror(0, 2)
     state = state.apply(rebase)
     state = command(state, undo)
+  })
+   
+  it("supports clearing history state", () => {
+    let state = mkState()
+    state = type(state, "hello")
+    state = state.apply(closeHistory(state.tr))
+    state = type(state, " world")
+    state = state.apply(closeHistory(state.tr))
+    state = type(state, "!!!")
+    
+    state = command(state, undo)
+    ist(undoDepth(state), 2)
+    ist(redoDepth(state), 1)
+
+    ist(state.doc, doc(p("hello world")), eq)
+    state = state.apply(clearHistory(state.tr))
+    ist(undoDepth(state), 0)
+    ist(redoDepth(state), 0)
+    ist(state.doc, doc(p("hello world")), eq)
   })
 })
