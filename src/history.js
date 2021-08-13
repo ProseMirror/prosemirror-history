@@ -407,7 +407,17 @@ export function history(config) {
       }
     },
 
-    config
+    config,
+
+    props: {
+      handleDOMEvents: {
+        beforeinput(view, e) {
+          if (e.inputType == "historyUndo") return undo(view)
+          if (e.inputType == "historyRedo") return redo(view)
+          return false
+        }
+      }
+    }
   })
 }
 
