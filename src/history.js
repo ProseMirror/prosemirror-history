@@ -412,8 +412,16 @@ export function history(config) {
     props: {
       handleDOMEvents: {
         beforeinput(view, e) {
-          if (e.inputType == "historyUndo") return undo(view.state)
-          if (e.inputType == "historyRedo") return redo(view.state)
+          if (e.inputType == "historyUndo") {
+            let undone = undo(view.state, view.dispatch)
+            if (undone) e.preventDefault()
+            return undone
+          }
+          if (e.inputType == "historyRedo") {
+            let redone = redo(view.state, view.dispatch)
+            if (redone) e.preventDefault()
+            return redone
+          }
           return false
         }
       }
