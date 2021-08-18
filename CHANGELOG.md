@@ -1,3 +1,13 @@
+## 1.2.0 (2021-08-18)
+
+### Bug fixes
+
+Fix a bug that caused the `beforeInput` handler to not actually invoke the history commands properly.
+
+### New features
+
+The history plugin now listens for `beforeInput` events with `historyUndo` or `historyRedo` type, and applies the undo/redo commands when they occur.
+
 ## 1.1.3 (2019-12-10)
 
 ### Bug fixes
