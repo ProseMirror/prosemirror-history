@@ -15,3 +15,5 @@ comes up in other situations as well.)
 @redoDepth
 
 @closeHistory
+
+@disableHistory

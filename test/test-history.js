@@ -4,7 +4,7 @@ const {EditorState, Plugin, TextSelection} = require("prosemirror-state")
 const {ReplaceStep} = require("prosemirror-transform")
 const ist = require("ist")
 
-const {history, closeHistory, undo, redo, undoDepth, redoDepth} = require("..")
+const {history, closeHistory, disableHistory, undo, redo, undoDepth, redoDepth} = require("..")
 
 let plugin = history()
 
@@ -395,5 +395,17 @@ describe("history", () => {
     rebase.mapping.setMirror(0, 2)
     state = state.apply(rebase)
     state = command(state, undo)
+  })
+
+  it("test disable history", () => {
+    let state = mkState()
+    state = type(state, "aa")
+    state = state.apply(disableHistory(state.tr).insertText('bb', 3))
+    state = type(state, "cc")
+    ist(state.doc, doc(p('aabbcc')), eq)
+    state = command(state, undo)
+    ist(state.doc, doc(p("aabb")), eq)
+    state = command(state, undo)
+    ist(state.doc, doc(p('bb')), eq)
   })
 })

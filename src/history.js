@@ -265,6 +265,8 @@ function applyTransaction(history, state, tr, options) {
   let historyTr = tr.getMeta(historyKey), rebased
   if (historyTr) return historyTr.historyState
 
+  if (tr.getMeta(disableHistoryKey)) return history
+
   if (tr.getMeta(closeHistoryKey)) history = new HistoryState(history.done, history.undone, null, 0)
 
   let appended = tr.getMeta("appendedTransaction")
@@ -369,8 +371,16 @@ export function closeHistory(tr) {
   return tr.setMeta(closeHistoryKey, true)
 }
 
+// :: (Transaction) → Transaction
+// Set a flag on the given transaction that will prevent further steps
+// append to the history stack.
+export function disableHistory(tr) {
+  return tr.setMeta(disableHistoryKey, true)
+}
+
 const historyKey = new PluginKey("history")
 const closeHistoryKey = new PluginKey("closeHistory")
+const disableHistoryKey = new PluginKey("disableHistory")
 
 // :: (?Object) → Plugin
 // Returns a plugin that enables the undo history for an editor. The
