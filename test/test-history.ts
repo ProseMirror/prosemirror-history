@@ -1,28 +1,27 @@
-const {eq, schema, doc, p} = require("prosemirror-test-builder")
-const {Slice, Fragment} = require("prosemirror-model")
-const {EditorState, Plugin, TextSelection} = require("prosemirror-state")
-const {ReplaceStep} = require("prosemirror-transform")
-const ist = require("ist")
-
-const {history, closeHistory, undo, redo, undoDepth, redoDepth} = require("..")
+import {eq, schema, doc, p} from "prosemirror-test-builder"
+import {Slice, Fragment, Node} from "prosemirror-model"
+import {EditorState, Plugin, TextSelection, Command} from "prosemirror-state"
+import {ReplaceStep} from "prosemirror-transform"
+import ist from "ist"
+import {history, closeHistory, undo, redo, undoDepth, redoDepth} from "prosemirror-history"
 
 let plugin = history()
 
-function mkState(doc, config) {
+function mkState(doc?: Node, config?: any) {
   let plugins = [config ? history(config) : plugin]
-  if (config && config.preserveItems) plugins.push(new Plugin({historyPreserveItems: true}))
+  if (config && config.preserveItems) plugins.push(new Plugin({historyPreserveItems: true} as any))
   return EditorState.create({schema, plugins: plugins.concat(config && config.plugins || []), doc})
 }
 
-function type(state, text) {
+function type(state: EditorState, text: string) {
   return state.apply(state.tr.insertText(text))
 }
-function command(state, command) {
+function command(state: EditorState, command: Command) {
   command(state, tr => state = state.apply(tr))
   return state
 }
 
-function compress(state) {
+function compress(state: EditorState) {
   // NOTE: This is mutating stuff that shouldn't be mutated. Not safe
   // to do outside of these tests.
   plugin.getState(state).done = plugin.getState(state).done.compress()
@@ -67,7 +66,7 @@ describe("history", () => {
   })
 
   it("starts a new event when newGroupDelay elapses", () => {
-    let state = mkState(null, {newGroupDelay: 1000})
+    let state = mkState(undefined, {newGroupDelay: 1000})
     state = state.apply(state.tr.insertText("a").setTime(1000))
     state = state.apply(state.tr.insertText("b").setTime(1600))
     ist(undoDepth(state), 1)
@@ -96,7 +95,7 @@ describe("history", () => {
     ist(state.doc, doc(p("bar")), eq)
   })
 
-  function unsyncedComplex(state, doCompress) {
+  function unsyncedComplex(state: EditorState, doCompress: boolean) {
     state = type(state, "hello")
     state = state.apply(closeHistory(state.tr))
     state = type(state, "!")
@@ -231,7 +230,7 @@ describe("history", () => {
   })
 
   it("handles change overwriting in item-preserving mode", () => {
-    let state = mkState(null, {preserveItems: true})
+    let state = mkState(undefined, {preserveItems: true})
     state = type(state, "a")
     state = type(state, "b")
     state = state.apply(closeHistory(state.tr))
@@ -259,7 +258,7 @@ describe("history", () => {
   })
 
   it("all functions gracefully handle EditorStates without history", () => {
-    let state = new EditorState()
+    let state = EditorState.create({schema})
     ist(undoDepth(state), 0)
     ist(redoDepth(state), 0)
     ist(undo(state), false)
@@ -267,7 +266,7 @@ describe("history", () => {
   })
 
   it("truncates history", () => {
-    let state = mkState(null, {depth: 2})
+    let state = mkState(undefined, {depth: 2})
     for (let i = 1; i < 40; ++i) {
       state = type(state, "a")
       state = state.apply(closeHistory(state.tr))
@@ -365,7 +364,7 @@ describe("history", () => {
     const tr = state.tr
     tr.step(rightStep.invert(baseDoc))
     tr.step(leftStep)
-    tr.step(rightStep.map(tr.mapping.slice(1)))
+    tr.step(rightStep.map(tr.mapping.slice(1))!)
     tr.mapping.setMirror(0, tr.steps.length - 1)
     tr.setMeta("addToHistory", false)
     tr.setMeta("rebased", 1)

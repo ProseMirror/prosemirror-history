@@ -1,6 +1,6 @@
 import RopeSequence from "rope-sequence"
-import {Mapping} from "prosemirror-transform"
-import {Plugin, PluginKey} from "prosemirror-state"
+import {Mapping, Step, StepMap, Transform} from "prosemirror-transform"
+import {Plugin, Command, PluginKey, EditorState, Transaction, SelectionBookmark} from "prosemirror-state"
 
 // ProseMirror's history isn't simply a way to roll back to a previous
 // state, because ProseMirror supports applying changes without adding
@@ -22,15 +22,11 @@ import {Plugin, PluginKey} from "prosemirror-state"
 const max_empty_items = 500
 
 class Branch {
-  constructor(items, eventCount) {
-    this.items = items
-    this.eventCount = eventCount
-  }
+  constructor(readonly items: RopeSequence<Item>, readonly eventCount: number) {}
 
-  // : (EditorState, bool) → ?{transform: Transform, selection: ?SelectionBookmark, remaining: Branch}
   // Pop the latest event off the branch's history and apply it
   // to a document transform.
-  popEvent(state, preserveItems) {
+  popEvent(state: EditorState, preserveItems: boolean) {
     if (this.eventCount == 0) return null
 
     let end = this.items.length
@@ -39,14 +35,14 @@ class Branch {
       if (next.selection) { --end; break }
     }
 
-    let remap, mapFrom
+    let remap: Mapping | undefined, mapFrom: number | undefined
     if (preserveItems) {
       remap = this.remapping(end, this.items.length)
       mapFrom = remap.maps.length
     }
     let transform = state.tr
-    let selection, remaining
-    let addAfter = [], addBefore = []
+    let selection: SelectionBookmark | undefined, remaining: Branch | undefined
+    let addAfter: Item[] = [], addBefore: Item[] = []
 
     this.items.forEach((item, i) => {
       if (!item.step) {
@@ -54,7 +50,7 @@ class Branch {
           remap = this.remapping(end, i + 1)
           mapFrom = remap.maps.length
         }
-        mapFrom--
+        mapFrom!--
         addBefore.push(item)
         return
       }
@@ -65,9 +61,9 @@ class Branch {
 
         if (step && transform.maybeStep(step).doc) {
           map = transform.mapping.maps[transform.mapping.maps.length - 1]
-          addAfter.push(new Item(map, null, null, addAfter.length + addBefore.length))
+          addAfter.push(new Item(map, undefined, undefined, addAfter.length + addBefore.length))
         }
-        mapFrom--
+        mapFrom!--
         if (map) remap.appendMap(map, mapFrom)
       } else {
         transform.maybeStep(item.step)
@@ -80,12 +76,12 @@ class Branch {
       }
     }, this.items.length, 0)
 
-    return {remaining, transform, selection}
+    return {remaining: remaining!, transform, selection: selection!}
   }
 
-  // : (Transform, ?SelectionBookmark, Object) → Branch
   // Create a new branch with the given transform added.
-  addTransform(transform, selection, histOptions, preserveItems) {
+  addTransform(transform: Transform, selection: SelectionBookmark | undefined,
+               histOptions: Required<HistoryOptions>, preserveItems: boolean) {
     let newItems = [], eventCount = this.eventCount
     let oldItems = this.items, lastItem = !preserveItems && oldItems.length ? oldItems.get(oldItems.length - 1) : null
 
@@ -100,7 +96,7 @@ class Branch {
       newItems.push(item)
       if (selection) {
         eventCount++
-        selection = null
+        selection = undefined
       }
       if (!preserveItems) lastItem = item
     }
@@ -112,30 +108,29 @@ class Branch {
     return new Branch(oldItems.append(newItems), eventCount)
   }
 
-  remapping(from, to) {
+  remapping(from: number, to: number): Mapping {
     let maps = new Mapping
     this.items.forEach((item, i) => {
       let mirrorPos = item.mirrorOffset != null && i - item.mirrorOffset >= from
-          ? maps.maps.length - item.mirrorOffset : null
+          ? maps.maps.length - item.mirrorOffset : undefined
       maps.appendMap(item.map, mirrorPos)
     }, from, to)
     return maps
   }
 
-  addMaps(array) {
+  addMaps(array: readonly StepMap[]) {
     if (this.eventCount == 0) return this
     return new Branch(this.items.append(array.map(map => new Item(map))), this.eventCount)
   }
 
-  // : (Transform, number)
   // When the collab module receives remote changes, the history has
   // to know about those, so that it can adjust the steps that were
   // rebased on top of the remote changes, and include the position
   // maps for the remote changes in its array of items.
-  rebased(rebasedTransform, rebasedCount) {
+  rebased(rebasedTransform: Transform, rebasedCount: number) {
     if (!this.eventCount) return this
 
-    let rebasedItems = [], start = Math.max(0, this.items.length - rebasedCount)
+    let rebasedItems: Item[] = [], start = Math.max(0, this.items.length - rebasedCount)
 
     let mapping = rebasedTransform.mapping
     let newUntil = rebasedTransform.steps.length
@@ -183,7 +178,7 @@ class Branch {
   // order to associate old items with rebased steps.
   compress(upto = this.items.length) {
     let remap = this.remapping(0, upto), mapFrom = remap.maps.length
-    let items = [], events = 0
+    let items: Item[] = [], events = 0
     this.items.forEach((item, i) => {
       if (i >= upto) {
         items.push(item)
@@ -195,7 +190,7 @@ class Branch {
         if (step) {
           let selection = item.selection && item.selection.map(remap.slice(mapFrom))
           if (selection) events++
-          let newItem = new Item(map.invert(), step, selection), merged, last = items.length - 1
+          let newItem = new Item(map!.invert(), step, selection), merged, last = items.length - 1
           if (merged = items.length && items[last].merge(newItem))
             items[last] = merged
           else
@@ -207,37 +202,37 @@ class Branch {
     }, this.items.length, 0)
     return new Branch(RopeSequence.from(items.reverse()), events)
   }
+
+  static empty = new Branch(RopeSequence.empty, 0)
 }
 
-Branch.empty = new Branch(RopeSequence.empty, 0)
-
-function cutOffEvents(items, n) {
-  let cutPoint
+function cutOffEvents(items: RopeSequence<Item>, n: number) {
+  let cutPoint: number | undefined
   items.forEach((item, i) => {
     if (item.selection && (n-- == 0)) {
       cutPoint = i
       return false
     }
   })
-  return items.slice(cutPoint)
+  return items.slice(cutPoint!)
 }
 
 class Item {
-  constructor(map, step, selection, mirrorOffset) {
+  constructor(
     // The (forward) step map for this item.
-    this.map = map
+    readonly map: StepMap,
     // The inverted step
-    this.step = step
+    readonly step?: Step,
     // If this is non-null, this item is the start of a group, and
     // this selection is the starting selection for the group (the one
     // that was active before the first step was applied)
-    this.selection = selection
+    readonly selection?: SelectionBookmark,
     // If this item is the inverse of a previous mapping on the stack,
     // this points at the inverse's offset
-    this.mirrorOffset = mirrorOffset
-  }
+    readonly mirrorOffset?: number
+  ) {}
 
-  merge(other) {
+  merge(other: Item) {
     if (this.step && other.step && !other.selection) {
       let step = other.step.merge(this.step)
       if (step) return new Item(step.getMap().invert(), step, this.selection)
@@ -248,20 +243,19 @@ class Item {
 // The value of the state field that tracks undo/redo history for that
 // state. Will be stored in the plugin state when the history plugin
 // is active.
-export class HistoryState {
-  constructor(done, undone, prevRanges, prevTime) {
-    this.done = done
-    this.undone = undone
-    this.prevRanges = prevRanges
-    this.prevTime = prevTime
-  }
+class HistoryState {
+  constructor(
+    readonly done: Branch,
+    readonly undone: Branch,
+    readonly prevRanges: readonly number[] | null,
+    readonly prevTime: number
+  ) {}
 }
 
 const DEPTH_OVERFLOW = 20
 
-// : (HistoryState, EditorState, Transaction, Object)
 // Record a transformation in undo history.
-function applyTransaction(history, state, tr, options) {
+function applyTransaction(history: HistoryState, state: EditorState, tr: Transaction, options: Required<HistoryOptions>) {
   let historyTr = tr.getMeta(historyKey), rebased
   if (historyTr) return historyTr.historyState
 
@@ -273,17 +267,17 @@ function applyTransaction(history, state, tr, options) {
     return history
   } else if (appended && appended.getMeta(historyKey)) {
     if (appended.getMeta(historyKey).redo)
-      return new HistoryState(history.done.addTransform(tr, null, options, mustPreserveItems(state)),
+      return new HistoryState(history.done.addTransform(tr, undefined, options, mustPreserveItems(state)),
                               history.undone, rangesFor(tr.mapping.maps[tr.steps.length - 1]), history.prevTime)
     else
-      return new HistoryState(history.done, history.undone.addTransform(tr, null, options, mustPreserveItems(state)),
+      return new HistoryState(history.done, history.undone.addTransform(tr, undefined, options, mustPreserveItems(state)),
                               null, history.prevTime)
   } else if (tr.getMeta("addToHistory") !== false && !(appended && appended.getMeta("addToHistory") === false)) {
     // Group transforms that occur in quick succession into one event.
     let newGroup = history.prevTime == 0 || !appended && (history.prevTime < (tr.time || 0) - options.newGroupDelay ||
-                                                          !isAdjacentTo(tr, history.prevRanges))
-    let prevRanges = appended ? mapRanges(history.prevRanges, tr.mapping) : rangesFor(tr.mapping.maps[tr.steps.length - 1])
-    return new HistoryState(history.done.addTransform(tr, newGroup ? state.selection.getBookmark() : null,
+                                                          !isAdjacentTo(tr, history.prevRanges!))
+    let prevRanges = appended ? mapRanges(history.prevRanges!, tr.mapping) : rangesFor(tr.mapping.maps[tr.steps.length - 1])
+    return new HistoryState(history.done.addTransform(tr, newGroup ? state.selection.getBookmark() : undefined,
                                                       options, mustPreserveItems(state)),
                             Branch.empty, prevRanges, tr.time)
   } else if (rebased = tr.getMeta("rebased")) {
@@ -291,15 +285,15 @@ function applyTransaction(history, state, tr, options) {
     // content has been rebased.
     return new HistoryState(history.done.rebased(tr, rebased),
                             history.undone.rebased(tr, rebased),
-                            mapRanges(history.prevRanges, tr.mapping), history.prevTime)
+                            mapRanges(history.prevRanges!, tr.mapping), history.prevTime)
   } else {
     return new HistoryState(history.done.addMaps(tr.mapping.maps),
                             history.undone.addMaps(tr.mapping.maps),
-                            mapRanges(history.prevRanges, tr.mapping), history.prevTime)
+                            mapRanges(history.prevRanges!, tr.mapping), history.prevTime)
   }
 }
 
-function isAdjacentTo(transform, prevRanges) {
+function isAdjacentTo(transform: Transform, prevRanges: readonly number[]) {
   if (!prevRanges) return false
   if (!transform.docChanged) return true
   let adjacent = false
@@ -311,13 +305,13 @@ function isAdjacentTo(transform, prevRanges) {
   return adjacent
 }
 
-function rangesFor(map) {
-  let result = []
+function rangesFor(map: StepMap) {
+  let result: number[] = []
   map.forEach((_from, _to, from, to) => result.push(from, to))
   return result
 }
 
-function mapRanges(ranges, mapping) {
+function mapRanges(ranges: readonly number[], mapping: Mapping) {
   if (!ranges) return null
   let result = []
   for (let i = 0; i < ranges.length; i += 2) {
@@ -327,15 +321,15 @@ function mapRanges(ranges, mapping) {
   return result
 }
 
-// : (HistoryState, EditorState, (tr: Transaction), bool)
 // Apply the latest event from one branch to the document and shift the event
 // onto the other branch.
-function histTransaction(history, state, dispatch, redo) {
-  let preserveItems = mustPreserveItems(state), histOptions = historyKey.get(state).spec.config
+function histTransaction(history: HistoryState, state: EditorState, dispatch: (tr: Transaction) => void, redo: boolean) {
+  let preserveItems = mustPreserveItems(state)
+  let histOptions = (historyKey.get(state)!.spec as any).config as Required<HistoryOptions>
   let pop = (redo ? history.undone : history.done).popEvent(state, preserveItems)
   if (!pop) return
 
-  let selection = pop.selection.resolve(pop.transform.doc)
+  let selection = pop.selection!.resolve(pop.transform.doc)
   let added = (redo ? history.done : history.undone).addTransform(pop.transform, state.selection.getBookmark(),
                                                                   histOptions, preserveItems)
 
@@ -343,17 +337,17 @@ function histTransaction(history, state, dispatch, redo) {
   dispatch(pop.transform.setSelection(selection).setMeta(historyKey, {redo, historyState: newHist}).scrollIntoView())
 }
 
-let cachedPreserveItems = false, cachedPreserveItemsPlugins = null
+let cachedPreserveItems = false, cachedPreserveItemsPlugins: readonly Plugin[] | null = null
 // Check whether any plugin in the given state has a
 // `historyPreserveItems` property in its spec, in which case we must
 // preserve steps exactly as they came in, so that they can be
 // rebased.
-function mustPreserveItems(state) {
+function mustPreserveItems(state: EditorState) {
   let plugins = state.plugins
   if (cachedPreserveItemsPlugins != plugins) {
     cachedPreserveItems = false
     cachedPreserveItemsPlugins = plugins
-    for (let i = 0; i < plugins.length; i++) if (plugins[i].spec.historyPreserveItems) {
+    for (let i = 0; i < plugins.length; i++) if ((plugins[i].spec as any).historyPreserveItems) {
       cachedPreserveItems = true
       break
     }
@@ -361,40 +355,38 @@ function mustPreserveItems(state) {
   return cachedPreserveItems
 }
 
-// :: (Transaction) → Transaction
-// Set a flag on the given transaction that will prevent further steps
-// from being appended to an existing history event (so that they
-// require a separate undo command to undo).
-export function closeHistory(tr) {
+/// Set a flag on the given transaction that will prevent further steps
+/// from being appended to an existing history event (so that they
+/// require a separate undo command to undo).
+export function closeHistory(tr: Transaction) {
   return tr.setMeta(closeHistoryKey, true)
 }
 
 const historyKey = new PluginKey("history")
 const closeHistoryKey = new PluginKey("closeHistory")
 
-// :: (?Object) → Plugin
-// Returns a plugin that enables the undo history for an editor. The
-// plugin will track undo and redo stacks, which can be used with the
-// [`undo`](#history.undo) and [`redo`](#history.redo) commands.
-//
-// You can set an `"addToHistory"` [metadata
-// property](#state.Transaction.setMeta) of `false` on a transaction
-// to prevent it from being rolled back by undo.
-//
-//   config::-
-//   Supports the following configuration options:
-//
-//     depth:: ?number
-//     The amount of history events that are collected before the
-//     oldest events are discarded. Defaults to 100.
-//
-//     newGroupDelay:: ?number
-//     The delay between changes after which a new group should be
-//     started. Defaults to 500 (milliseconds). Note that when changes
-//     aren't adjacent, a new group is always started.
-export function history(config) {
-  config = {depth: config && config.depth || 100,
-            newGroupDelay: config && config.newGroupDelay || 500}
+interface HistoryOptions {
+  /// The amount of history events that are collected before the
+  /// oldest events are discarded. Defaults to 100.
+  depth?: number
+
+  /// The delay between changes after which a new group should be
+  /// started. Defaults to 500 (milliseconds). Note that when changes
+  /// aren't adjacent, a new group is always started.
+  newGroupDelay?: number
+}
+
+/// Returns a plugin that enables the undo history for an editor. The
+/// plugin will track undo and redo stacks, which can be used with the
+/// [`undo`](#history.undo) and [`redo`](#history.redo) commands.
+///
+/// You can set an `"addToHistory"` [metadata
+/// property](#state.Transaction.setMeta) of `false` on a transaction
+/// to prevent it from being rolled back by undo.
+export function history(config: HistoryOptions = {}) {
+  config = {depth: config.depth || 100,
+            newGroupDelay: config.newGroupDelay || 500}
+
   return new Plugin({
     key: historyKey,
 
@@ -403,16 +395,18 @@ export function history(config) {
         return new HistoryState(Branch.empty, Branch.empty, null, 0)
       },
       apply(tr, hist, state) {
-        return applyTransaction(hist, state, tr, config)
+        return applyTransaction(hist, state, tr, config as Required<HistoryOptions>)
       }
     },
 
+    // @ts-ignore
     config,
 
     props: {
       handleDOMEvents: {
-        beforeinput(view, e) {
-          let command = e.inputType == "historyUndo" ? undo : e.inputType == "historyRedo" ? redo : null
+        beforeinput(view, e: Event) {
+          let inputType = (e as InputEvent).inputType
+          let command = inputType == "historyUndo" ? undo : inputType == "historyRedo" ? redo : null
           if (!command) return false
           e.preventDefault()
           return command(view.state, view.dispatch)
@@ -422,34 +416,30 @@ export function history(config) {
   })
 }
 
-// :: (EditorState, ?(tr: Transaction)) → bool
-// A command function that undoes the last change, if any.
-export function undo(state, dispatch) {
+/// A command function that undoes the last change, if any.
+export const undo: Command = (state, dispatch) => {
   let hist = historyKey.getState(state)
   if (!hist || hist.done.eventCount == 0) return false
   if (dispatch) histTransaction(hist, state, dispatch, false)
   return true
 }
 
-// :: (EditorState, ?(tr: Transaction)) → bool
-// A command function that redoes the last undone change, if any.
-export function redo(state, dispatch) {
+/// A command function that redoes the last undone change, if any.
+export const redo: Command = (state, dispatch) => {
   let hist = historyKey.getState(state)
   if (!hist || hist.undone.eventCount == 0) return false
   if (dispatch) histTransaction(hist, state, dispatch, true)
   return true
 }
 
-// :: (EditorState) → number
-// The amount of undoable events available in a given state.
-export function undoDepth(state) {
+/// The amount of undoable events available in a given state.
+export function undoDepth(state: EditorState) {
   let hist = historyKey.getState(state)
   return hist ? hist.done.eventCount : 0
 }
 
-// :: (EditorState) → number
-// The amount of redoable events available in a given editor state.
-export function redoDepth(state) {
+/// The amount of redoable events available in a given editor state.
+export function redoDepth(state: EditorState) {
   let hist = historyKey.getState(state)
   return hist ? hist.undone.eventCount : 0
 }
