@@ -383,7 +383,7 @@ interface HistoryOptions {
 /// You can set an `"addToHistory"` [metadata
 /// property](#state.Transaction.setMeta) of `false` on a transaction
 /// to prevent it from being rolled back by undo.
-export function history(config: HistoryOptions = {}) {
+export function history(config: HistoryOptions = {}): Plugin {
   config = {depth: config.depth || 100,
             newGroupDelay: config.newGroupDelay || 500}
 
@@ -399,7 +399,6 @@ export function history(config: HistoryOptions = {}) {
       }
     },
 
-    // @ts-ignore
     config,
 
     props: {
