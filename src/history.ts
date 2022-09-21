@@ -387,6 +387,9 @@ export function history(config: HistoryOptions = {}): Plugin {
   config = {depth: config.depth || 100,
             newGroupDelay: config.newGroupDelay || 500}
 
+  let compositionStart = false;
+  let compositionStartTime = NaN;
+
   return new Plugin({
     key: historyKey,
 
@@ -402,6 +405,30 @@ export function history(config: HistoryOptions = {}): Plugin {
     config,
 
     props: {
+      handleTextInput: (view, chFrom, chTo, text) => {
+        if (view.composing) {
+          if (compositionStart === false) {
+            compositionStart = true
+            compositionStartTime = Date.now()
+          }
+          view.dispatch(
+            view.state.tr
+              .insertText(text, chFrom, chTo)
+              .setTime(compositionStartTime)
+          )
+          return true
+        }
+        if (compositionStart === true) {
+          compositionStart = false;
+          view.dispatch(
+            view.state.tr
+              .insertText(text, chFrom, chTo)
+              .setTime(compositionStartTime)
+          );
+          return true
+        }
+        return false
+      },
       handleDOMEvents: {
         beforeinput(view, e: Event) {
           let inputType = (e as InputEvent).inputType
