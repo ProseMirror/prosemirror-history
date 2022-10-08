@@ -1,6 +1,6 @@
 import RopeSequence from "rope-sequence"
 import {Mapping, Step, StepMap, Transform} from "prosemirror-transform"
-import {Plugin, Command, PluginKey, EditorState, Transaction, SelectionBookmark} from "prosemirror-state"
+import {Editor, Plugin, Command, PluginKey, EditorState, Transaction, SelectionBookmark} from "prosemirror-state"
 
 // ProseMirror's history isn't simply a way to roll back to a previous
 // state, because ProseMirror supports applying changes without adding
@@ -254,8 +254,38 @@ class HistoryState {
 
 const DEPTH_OVERFLOW = 20
 
+// Determine history state when to newGroup 
+const checkNewGroup = (
+  history: HistoryState,
+  appended: boolean,
+  tr: Transaction,
+  newGroupDelay: number,
+  forceGroup: boolean,
+  composing: boolean,
+): boolean => {
+  if (forceGroup) {
+    return true;
+  }
+  else if (composing) {
+    return false;
+  }
+  else if (history.prevTime === 0) {
+    return true;
+  }
+  else if (!appended) {
+    const timeElapsed = (tr.time || 0) - newGroupDelay;
+    if (history.prevTime < timeElapsed) {
+      return true;
+    }
+    if (!isAdjacentTo(tr, history.prevRanges!)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Record a transformation in undo history.
-function applyTransaction(history: HistoryState, state: EditorState, tr: Transaction, options: Required<HistoryOptions>) {
+function applyTransaction(history: HistoryState, state: EditorState, tr: Transaction, options: Required<HistoryOptions>, forceNewGroup: boolean, composing: boolean) {
   let historyTr = tr.getMeta(historyKey), rebased
   if (historyTr) return historyTr.historyState
 
@@ -274,9 +304,8 @@ function applyTransaction(history: HistoryState, state: EditorState, tr: Transac
                               null, history.prevTime)
   } else if (tr.getMeta("addToHistory") !== false && !(appended && appended.getMeta("addToHistory") === false)) {
     // Group transforms that occur in quick succession into one event.
-    let newGroup = history.prevTime == 0 || !appended && (history.prevTime < (tr.time || 0) - options.newGroupDelay ||
-                                                          !isAdjacentTo(tr, history.prevRanges!))
-    let prevRanges = appended ? mapRanges(history.prevRanges!, tr.mapping) : rangesFor(tr.mapping.maps[tr.steps.length - 1])
+    const newGroup = checkNewGroup(history, appended, tr, options.newGroupDelay, forceNewGroup, composing);
+    const prevRanges = appended ? mapRanges(history.prevRanges!, tr.mapping) : rangesFor(tr.mapping.maps[tr.steps.length - 1])
     return new HistoryState(history.done.addTransform(tr, newGroup ? state.selection.getBookmark() : undefined,
                                                       options, mustPreserveItems(state)),
                             Branch.empty, prevRanges, tr.time)
@@ -376,6 +405,10 @@ interface HistoryOptions {
   newGroupDelay?: number
 }
 
+export interface HistoryThis {
+  editor: Editor
+}
+
 /// Returns a plugin that enables the undo history for an editor. The
 /// plugin will track undo and redo stacks, which can be used with the
 /// [`undo`](#history.undo) and [`redo`](#history.redo) commands.
@@ -383,12 +416,13 @@ interface HistoryOptions {
 /// You can set an `"addToHistory"` [metadata
 /// property](#state.Transaction.setMeta) of `false` on a transaction
 /// to prevent it from being rolled back by undo.
-export function history(config: HistoryOptions = {}): Plugin {
+export function history(this: HistoryThis, config: HistoryOptions = {}): Plugin {
   config = {depth: config.depth || 100,
             newGroupDelay: config.newGroupDelay || 500}
 
   let compositionStart = false;
-  let compositionStartTime = NaN;
+  // Need get editor object that can get composing property of view state
+  const editor = this.editor;
 
   return new Plugin({
     key: historyKey,
@@ -398,37 +432,28 @@ export function history(config: HistoryOptions = {}): Plugin {
         return new HistoryState(Branch.empty, Branch.empty, null, 0)
       },
       apply(tr, hist, state) {
-        return applyTransaction(hist, state, tr, config as Required<HistoryOptions>)
+        let forceNewGroup = false;
+        if (editor.view.composing) {
+          if (compositionStart === false) {
+            compositionStart = true;
+            forceNewGroup = true;
+          } else {
+            forceNewGroup = false;
+          }
+          return applyTransaction(hist, state, tr, config as Required<HistoryOptions>, forceNewGroup, true);
+        }
+        if (compositionStart === true) {
+          compositionStart = false;
+          forceNewGroup = false;
+          return applyTransaction(hist, state, tr, config as Required<HistoryOptions>, forceNewGroup, true);
+        }
+        return applyTransaction(hist, state, tr, config as Required<HistoryOptions>, forceNewGroup, false);
       }
     },
 
     config,
 
     props: {
-      handleTextInput: (view, chFrom, chTo, text) => {
-        if (view.composing) {
-          if (compositionStart === false) {
-            compositionStart = true
-            compositionStartTime = Date.now()
-          }
-          view.dispatch(
-            view.state.tr
-              .insertText(text, chFrom, chTo)
-              .setTime(compositionStartTime)
-          )
-          return true
-        }
-        if (compositionStart === true) {
-          compositionStart = false;
-          view.dispatch(
-            view.state.tr
-              .insertText(text, chFrom, chTo)
-              .setTime(compositionStartTime)
-          );
-          return true
-        }
-        return false
-      },
       handleDOMEvents: {
         beforeinput(view, e: Event) {
           let inputType = (e as InputEvent).inputType
