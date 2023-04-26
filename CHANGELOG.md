@@ -1,3 +1,9 @@
+## 1.3.1 (2023-04-26)
+
+### Bug fixes
+
+Fix an issue where, if a composition moved the selection, it might get split across multiple undo events.
+
 ## 1.3.0 (2022-05-30)
 
 ### Bug fixes
