@@ -248,7 +248,8 @@ class HistoryState {
     readonly done: Branch,
     readonly undone: Branch,
     readonly prevRanges: readonly number[] | null,
-    readonly prevTime: number
+    readonly prevTime: number,
+    readonly prevComposition: number
   ) {}
 }
 
@@ -259,7 +260,7 @@ function applyTransaction(history: HistoryState, state: EditorState, tr: Transac
   let historyTr = tr.getMeta(historyKey), rebased
   if (historyTr) return historyTr.historyState
 
-  if (tr.getMeta(closeHistoryKey)) history = new HistoryState(history.done, history.undone, null, 0)
+  if (tr.getMeta(closeHistoryKey)) history = new HistoryState(history.done, history.undone, null, 0, -1)
 
   let appended = tr.getMeta("appendedTransaction")
 
@@ -268,28 +269,31 @@ function applyTransaction(history: HistoryState, state: EditorState, tr: Transac
   } else if (appended && appended.getMeta(historyKey)) {
     if (appended.getMeta(historyKey).redo)
       return new HistoryState(history.done.addTransform(tr, undefined, options, mustPreserveItems(state)),
-                              history.undone, rangesFor(tr.mapping.maps[tr.steps.length - 1]), history.prevTime)
+                              history.undone, rangesFor(tr.mapping.maps[tr.steps.length - 1]),
+                              history.prevTime, history.prevComposition)
     else
       return new HistoryState(history.done, history.undone.addTransform(tr, undefined, options, mustPreserveItems(state)),
-                              null, history.prevTime)
+                              null, history.prevTime, history.prevComposition)
   } else if (tr.getMeta("addToHistory") !== false && !(appended && appended.getMeta("addToHistory") === false)) {
     // Group transforms that occur in quick succession into one event.
-    let newGroup = history.prevTime == 0 || !appended && (history.prevTime < (tr.time || 0) - options.newGroupDelay ||
-                                                          !isAdjacentTo(tr, history.prevRanges!))
+    let composition = tr.getMeta("composition")
+    let newGroup = history.prevTime == 0 ||
+      (!appended && history.prevComposition != composition &&
+       (history.prevTime < (tr.time || 0) - options.newGroupDelay || !isAdjacentTo(tr, history.prevRanges!)))
     let prevRanges = appended ? mapRanges(history.prevRanges!, tr.mapping) : rangesFor(tr.mapping.maps[tr.steps.length - 1])
     return new HistoryState(history.done.addTransform(tr, newGroup ? state.selection.getBookmark() : undefined,
                                                       options, mustPreserveItems(state)),
-                            Branch.empty, prevRanges, tr.time)
+                            Branch.empty, prevRanges, tr.time, composition == null ? history.prevComposition : composition)
   } else if (rebased = tr.getMeta("rebased")) {
     // Used by the collab module to tell the history that some of its
     // content has been rebased.
     return new HistoryState(history.done.rebased(tr, rebased),
                             history.undone.rebased(tr, rebased),
-                            mapRanges(history.prevRanges!, tr.mapping), history.prevTime)
+                            mapRanges(history.prevRanges!, tr.mapping), history.prevTime, history.prevComposition)
   } else {
     return new HistoryState(history.done.addMaps(tr.mapping.maps),
                             history.undone.addMaps(tr.mapping.maps),
-                            mapRanges(history.prevRanges!, tr.mapping), history.prevTime)
+                            mapRanges(history.prevRanges!, tr.mapping), history.prevTime, history.prevComposition)
   }
 }
 
@@ -333,7 +337,7 @@ function histTransaction(history: HistoryState, state: EditorState, dispatch: (t
   let added = (redo ? history.done : history.undone).addTransform(pop.transform, state.selection.getBookmark(),
                                                                   histOptions, preserveItems)
 
-  let newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, null, 0)
+  let newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, null, 0, -1)
   dispatch(pop.transform.setSelection(selection).setMeta(historyKey, {redo, historyState: newHist}).scrollIntoView())
 }
 
@@ -392,7 +396,7 @@ export function history(config: HistoryOptions = {}): Plugin {
 
     state: {
       init() {
-        return new HistoryState(Branch.empty, Branch.empty, null, 0)
+        return new HistoryState(Branch.empty, Branch.empty, null, 0, -1)
       },
       apply(tr, hist, state) {
         return applyTransaction(hist, state, tr, config as Required<HistoryOptions>)
