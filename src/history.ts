@@ -255,6 +255,14 @@ class HistoryState {
 
 const DEPTH_OVERFLOW = 20
 
+export type IProseMirrorInternalHistoryState = {
+  composition: boolean;
+}
+
+const previousState: IProseMirrorInternalHistoryState = {
+  composition: false
+};
+
 // Record a transformation in undo history.
 function applyTransaction(history: HistoryState, state: EditorState, tr: Transaction, options: Required<HistoryOptions>) {
   let historyTr = tr.getMeta(historyKey), rebased
@@ -276,11 +284,42 @@ function applyTransaction(history: HistoryState, state: EditorState, tr: Transac
                               null, history.prevTime, history.prevComposition)
   } else if (tr.getMeta("addToHistory") !== false && !(appended && appended.getMeta("addToHistory") === false)) {
     // Group transforms that occur in quick succession into one event.
-    let composition = tr.getMeta("composition")
-    let newGroup = history.prevTime == 0 ||
-      (!appended && history.prevComposition != composition &&
-       (history.prevTime < (tr.time || 0) - options.newGroupDelay || !isAdjacentTo(tr, history.prevRanges!)))
-    let prevRanges = appended ? mapRanges(history.prevRanges!, tr.mapping) : rangesFor(tr.mapping.maps[tr.steps.length - 1])
+    const composition = tr.getMeta("composition");
+    const whenCompositionEnabled = composition ?? false;
+    const whenPreviousCompositionEnabled = previousState.composition === true;
+    const whenCompositionIsTriggered = history.prevComposition !== -1; // -1 is default value
+    const transactionTime = tr.time ?? 0;
+    // Group transform for timing cases
+    const baseTimingOperationNewGroup = whenPreviousCompositionEnabled ? false : history.prevTime < transactionTime - options.newGroupDelay;
+    // Group transform for composition cases
+    const whenEditOperationIsCompositionStart = whenCompositionEnabled && history.prevComposition !== composition;
+    const whenEditOperationAfterCompositionEnd = !whenCompositionEnabled && whenCompositionIsTriggered && !whenPreviousCompositionEnabled;
+    // composition is disabled will not call need adjacent
+    const operationIsAdjacentTo = !whenCompositionEnabled && !isAdjacentTo(tr, history.prevRanges!);
+    /* 
+     * Align the system editing history group transforms.
+     * When composition start will create group transform.
+     * After the composition end, the next editor step will create new group transform.
+    */ 
+    const generateNewGroupWithOperation = !appended && 
+      (whenEditOperationIsCompositionStart
+        || whenEditOperationAfterCompositionEnd
+        || baseTimingOperationNewGroup);
+
+    const firstHistory = history.prevTime == 0;
+    /**
+      * There are 3 situations for handling operation history grouping:
+      * firstHistory - The first edit.
+      * generateNewGroupWithOperation - Determines whether grouping is required based on the input method state.
+      * operationIsAdjacentTo - When not in input method state, and steps 1 and 2 are both false, and there is no input method state at this time, grouping is determined based on ProseMirror history logic.
+    **/
+    const newGroup = firstHistory ||
+      (generateNewGroupWithOperation || operationIsAdjacentTo)
+
+    const prevRanges = appended ? mapRanges(history.prevRanges!, tr.mapping) : rangesFor(tr.mapping.maps[tr.steps.length - 1])
+
+    // update state
+    previousState.composition = whenCompositionEnabled;
     return new HistoryState(history.done.addTransform(tr, newGroup ? state.selection.getBookmark() : undefined,
                                                       options, mustPreserveItems(state)),
                             Branch.empty, prevRanges, tr.time, composition == null ? history.prevComposition : composition)
