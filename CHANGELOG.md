@@ -1,3 +1,9 @@
+## 1.4.0 (2024-03-21)
+
+### New features
+
+Add `undoNoScroll`/`redoNoScroll` commands.
+
 ## 1.3.2 (2023-05-17)
 
 ### Bug fixes
