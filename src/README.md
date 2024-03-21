@@ -10,6 +10,10 @@ comes up in other situations as well.)
 
 @redo
 
+@undoNoScroll
+
+@redoNoScroll
+
 @undoDepth
 
 @redoDepth

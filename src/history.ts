@@ -327,18 +327,18 @@ function mapRanges(ranges: readonly number[], mapping: Mapping) {
 
 // Apply the latest event from one branch to the document and shift the event
 // onto the other branch.
-function histTransaction(history: HistoryState, state: EditorState, dispatch: (tr: Transaction) => void, redo: boolean) {
+function histTransaction(history: HistoryState, state: EditorState, redo: boolean): Transaction | null {
   let preserveItems = mustPreserveItems(state)
   let histOptions = (historyKey.get(state)!.spec as any).config as Required<HistoryOptions>
   let pop = (redo ? history.undone : history.done).popEvent(state, preserveItems)
-  if (!pop) return
+  if (!pop) return null
 
   let selection = pop.selection!.resolve(pop.transform.doc)
   let added = (redo ? history.done : history.undone).addTransform(pop.transform, state.selection.getBookmark(),
                                                                   histOptions, preserveItems)
 
   let newHist = new HistoryState(redo ? added : pop.remaining, redo ? pop.remaining : added, null, 0, -1)
-  dispatch(pop.transform.setSelection(selection).setMeta(historyKey, {redo, historyState: newHist}).scrollIntoView())
+  return pop.transform.setSelection(selection).setMeta(historyKey, {redo, historyState: newHist})
 }
 
 let cachedPreserveItems = false, cachedPreserveItemsPlugins: readonly Plugin[] | null = null
@@ -419,21 +419,31 @@ export function history(config: HistoryOptions = {}): Plugin {
   })
 }
 
-/// A command function that undoes the last change, if any.
-export const undo: Command = (state, dispatch) => {
-  let hist = historyKey.getState(state)
-  if (!hist || hist.done.eventCount == 0) return false
-  if (dispatch) histTransaction(hist, state, dispatch, false)
-  return true
+function buildCommand(redo: boolean, scroll: boolean): Command {
+  return (state, dispatch) => {
+    let hist = historyKey.getState(state)
+    if (!hist || (redo ? hist.undone : hist.done).eventCount == 0) return false
+    if (dispatch) {
+      let tr = histTransaction(hist, state, redo)
+      if (tr) dispatch(scroll ? tr.scrollIntoView() : tr)
+    }
+    return true
+  }
 }
 
+/// A command function that undoes the last change, if any.
+export const undo = buildCommand(false, true)
+
 /// A command function that redoes the last undone change, if any.
-export const redo: Command = (state, dispatch) => {
-  let hist = historyKey.getState(state)
-  if (!hist || hist.undone.eventCount == 0) return false
-  if (dispatch) histTransaction(hist, state, dispatch, true)
-  return true
-}
+export const redo = buildCommand(true, true)
+
+/// A command function that undoes the last change. Don't scroll the
+/// selection into view.
+export const undoNoScroll = buildCommand(false, false)
+
+/// A command function that redoes the last undone change. Don't
+/// scroll the selection into view.
+export const redoNoScroll = buildCommand(true, false)
 
 /// The amount of undoable events available in a given state.
 export function undoDepth(state: EditorState) {
