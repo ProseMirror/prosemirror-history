@@ -77,6 +77,20 @@ describe("history", () => {
     ist(undoDepth(state), 2)
   })
 
+  it("starts a new event for non-adjacent changes", () => {
+    let state = mkState(doc(p("abc")), {newGroupDelay: 1000})
+    state = state.apply(state.tr.insertText("x", 1))
+    state = state.apply(state.tr.insertText("y", 5))
+    ist(undoDepth(state), 2)
+  })
+
+  it("doesn't get confused by non-replacement steps when checking adjacency", () => {
+    let state = mkState(doc(p()), {newGroupDelay: 1000})
+    state = state.apply(state.tr.insertText("x", 1).addMark(1, 2, schema.marks.em.create()))
+    state = state.apply(state.tr.insertText("y", 2).addMark(2, 3, schema.marks.em.create()))
+    ist(undoDepth(state), 1)
+  })
+
   it("allows changes that aren't part of the history", () => {
     let state = mkState()
     state = type(state, "hello")
