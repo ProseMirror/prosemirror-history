@@ -1,3 +1,9 @@
+## 1.4.1 (2024-07-10)
+
+### Bug fixes
+
+Fix an issue where mark steps could cause the history to treat otherwise adjacent changes as non-adjacent, and start superfluous new undo events.
+
 ## 1.4.0 (2024-03-21)
 
 ### New features
