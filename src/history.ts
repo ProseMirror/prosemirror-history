@@ -411,7 +411,7 @@ export function history(config: HistoryOptions = {}): Plugin {
         beforeinput(view, e: Event) {
           let inputType = (e as InputEvent).inputType
           let command = inputType == "historyUndo" ? undo : inputType == "historyRedo" ? redo : null
-          if (!command) return false
+          if (!command || !view.editable) return false
           e.preventDefault()
           return command(view.state, view.dispatch)
         }
