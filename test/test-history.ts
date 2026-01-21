@@ -3,7 +3,7 @@ import {Slice, Fragment, Node} from "prosemirror-model"
 import {EditorState, Plugin, TextSelection, Command} from "prosemirror-state"
 import {ReplaceStep} from "prosemirror-transform"
 import ist from "ist"
-import {history, closeHistory, undo, redo, undoDepth, redoDepth} from "prosemirror-history"
+import {history, closeHistory, undo, redo, undoDepth, redoDepth, resetHistory} from "prosemirror-history"
 
 let plugin = history()
 
@@ -44,6 +44,15 @@ describe("history", () => {
     state = command(state, undo)
     ist(state.doc, doc(p()), eq)
     state = command(state, redo)
+    ist(state.doc, doc(p("ab")), eq)
+  })
+
+  it("can reset history", () => {
+    let state = mkState()
+    state = type(state, "a")
+    state = type(state, "b")
+    state = command(state, resetHistory())
+    state = command(state, undo)
     ist(state.doc, doc(p("ab")), eq)
   })
 
