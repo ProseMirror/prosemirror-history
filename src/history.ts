@@ -290,6 +290,8 @@ function applyTransaction(history: HistoryState, state: EditorState, tr: Transac
     return new HistoryState(history.done.rebased(tr, rebased),
                             history.undone.rebased(tr, rebased),
                             mapRanges(history.prevRanges!, tr.mapping), history.prevTime, history.prevComposition)
+  } else if (rebased = tr.getMeta("resetHistory")) {
+    return new HistoryState(Branch.empty, Branch.empty, null, 0, -1)
   } else {
     return new HistoryState(history.done.addMaps(tr.mapping.maps),
                             history.undone.addMaps(tr.mapping.maps),
@@ -445,6 +447,16 @@ export const undoNoScroll = buildCommand(false, false)
 /// A command function that redoes the last undone change. Don't
 /// scroll the selection into view.
 export const redoNoScroll = buildCommand(true, false)
+
+/// A command function that resets the history without the need to
+/// restart the plugin.
+export function resetHistory(): Command {
+  return (state, dispatch) => {
+    if (dispatch)
+      dispatch(state.tr.setMeta(historyKey, "resetHistory"))
+    return true
+  }
+}
 
 /// The amount of undoable events available in a given state.
 export function undoDepth(state: EditorState) {
