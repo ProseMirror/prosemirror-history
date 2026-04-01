@@ -21,7 +21,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git://github.com/prosemirror/prosemirror-history.git"
+    "url": "git+https://code.haverbeke.berlin/prosemirror/prosemirror-history.git"
   },
   "dependencies": {
     "prosemirror-state": "^1.2.2",
